@@ -1,0 +1,343 @@
+---
+title: "R Notebook"
+output: html_notebook
+---
+
+This is an [R Markdown](http://rmarkdown.rstudio.com) Notebook. When you execute code within the notebook, the results appear beneath the code. 
+
+Try executing this chunk by clicking the *Run* button within the chunk or by placing your cursor inside it and pressing *Ctrl+Shift+Enter*. 
+
+```{r}
+pan.tiny <- readRDS(file = "/home/kvergasova/conos_analysis/data_tiny.rds")
+#pan.b <- readRDS(file = "data_big.rds")
+# pan.b <- readRDS(file = "data_big.rds")
+cono.t <- Conos$new(pan.tiny)
+p.conos.old.cell.type <- list()
+j <- 1
+cono.t$misc <- NULL
+#cono.t$misc$add.cells <- FALSE
+
+fwrite(annotation, "/home/kvergasova/conos_analysis/annotation_tiny_data.tsv")
+ann.tiny <- fread("/home/kvergasova/conos_analysis/annotation_tiny_data.tsv")
+
+table(ann.tiny$cellType)[table(ann.tiny$cellType) > 40]
+cell.type <- factor(ann.tiny$cellType == "ductal" , labels = c('other', 'ductal') ) 
+names(cell.type) <- ann.tiny$cell
+
+an.all.cell <- ann.tiny$cellType
+names(an.all.cell) <- ann.tiny$cell
+```
+
+
+```{r, fig.width=10}
+p.conos.old.cell.type <- list()
+p.conos.old <- list()
+p.conos.old.cell.ann <- list()
+j=1
+ p.conos.old.cell.type.only <- list()
+embeg.tiny <- tibble(cell=rownames(cono.t$embeddings$largeVis))
+for (i in c(0, 0.1, 0.3, 0.5, 0.8, 1)){
+  cono.t$buildGraph(k=50, k1 = 100, k.self=5, space='PCA', ncomps=30, n.odgenes=2000, matching.method='mNN', metric='angular', score.component.variance=TRUE, verbose=TRUE,  alignment.strength = i)
+  cono.t$findCommunities(method=leiden.community, resolution=1)
+  cono.t$embedGraph()
+  p.conos.old.cell.ann[[j]] <-cono.t$plotGraph(group = an.all.cell,mark.groups=FALSE, alpha=0.3,show.legend=TRUE)
+  p.conos.old[[j]] <- cono.t$plotGraph(color.by='sample', mark.groups=FALSE, alpha=0.1, show.legend=TRUE)
+  add.em <- tibble(x=unname(cono.t$embeddings$largeVis[,1]), y=unname(cono.t$embeddings$largeVis[,2]))
+  rownames(add.em) <- rownames(cono.t$embeddings$largeVis)
+ # colnames(add.em) <- c(str_c("x_", i),str_c("y_", i))
+  
+  # cono.t$plotGraph(color.by='sample', mark.groups=FALSE, alpha=0.1, show.legend=TRUE)
+  # cono.t$plotGraph(group = an.all.cell,  alpha=0.5)
+  for (type in c("acinar", "activated_stellate","alpha","beta","delta","ductal","endothelial", "gamma")){
+    cell.type <- factor(ann.tiny$cellType == type , labels = c('other', type) ) 
+    names(cell.type) <- ann.tiny$cell
+    cell_sub_type <- ann.tiny[ann.tiny$cellType == type,]$cell
+    p.conos.old.cell.type[[type]][[j]] <-cono.t$plotGraph(group = cell.type,mark.groups=FALSE, alpha=0.1,show.legend=TRUE)
+    
+    data.plot <- add.em[rownames(add.em) %in% cell_sub_type,] 
+    p0 <- ggplot(data.plot) + geom_point(mapping = aes(x=data.plot$x, y = data.plot$y), colour = "red", alpha = 0.5) + ggtitle(str_c(type, " cells")) + xlab("X") + ylab("Y")
+    p.conos.old.cell.type.only[[type]][[j]] <- p0
+  }
+  colnames(add.em) <- c(str_c("x_", i),str_c("y_", i))
+  embeg.tiny<- cbind(embeg.tiny, add.em)
+  j <- j + 1   
+}
+```
+
+#сохраняем граф и эмбэдинг
+```{r}
+pan.tiny <- readRDS(file = "/home/kvergasova/conos_analysis/data_tiny.rds")
+con <- Conos$new(pan.tiny)
+path <- "/home/kvergasova/conos_analysis/pancreatit_data/"
+
+graphEmbed <- function(con, path, ncell){
+
+  embedding.old <- tibble(.rows = ncell)
+
+  for (i in c(0, 0.1, 0.3, 0.5, 0.8, 1)){
+    con$misc <- NULL
+    con$buildGraph(k=50, k1 = 100, k.self=5, space='PCA', ncomps=30, n.odgenes=2000, matching.method='mNN', metric='angular', score.component.variance=TRUE, verbose=TRUE,  alignment.strength = i)
+    con$findCommunities(method=leiden.community, resolution=1)
+    con$embedGraph()
+    add.em <- tibble(x=unname(con$embeddings$largeVis[,1]), y=unname(con$embeddings$largeVis[,2]))
+    colnames(add.em) <- c(str_c("x_", i),str_c("y_", i))
+    embedding.old <- cbind(embedding.old, add.em)
+    saveRDS(cono.t$graph, str_c(path, "old_alstr_", i, ".rds"))
+    write_graph(cono.t$graph, str_c(path, "old_alstr_", i, ".txt"), "edgelist")
+    
+  }
+  embedding.old$cell <- rownames(con$embeddings$largeVis)
+  fwrite(embedding.old, str_c(path, "old_embedding.tsv"))
+  embedding <- list()
+  j <- 1
+  for (n.neig in c(0.05, 0.1, 0.3, 0.5)){
+    con$misc$neighborfilter <- lapply(con$samples, function(x) findCells(x, n.neig))
+    con$misc$add.cells <- FALSE
+    embed.df <- tibble(cell=rownames(con$embeddings$largeVis))
+  for (i in c(0, 0.1, 0.3, 0.5, 0.8, 1)){
+      con$buildGraph(k=50, k1 = 100, k.self=5, space='PCA', ncomps=30, n.odgenes=2000, matching.method='mNN', metric='angular', score.component.variance=TRUE, verbose=TRUE,  alignment.strength = i)
+      con$findCommunities(method=leiden.community, resolution=1)
+      con$embedGraph()
+     
+      #p.conos[[str_c("n.neig_", n.neig)]][[m]] <- con$plotGraph(color.by='sample', mark.groups=FALSE, alpha=0.1, show.legend=TRUE)
+      add.em <- tibble(x=unname(con$embeddings$largeVis[,1]), y=unname(con$embeddings$largeVis[,2]))
+      colnames(add.em) <- c(str_c("x_", i),str_c("y_", i))
+      embed.df<- cbind(embed.df, add.em)
+      saveRDS(cono.t$graph, str_c(path, "nneig_",n.neig, "_alstr_", i, ".rds"))
+      write_graph(cono.t$graph, str_c(path, "nneig_",n.neig, "_alstr_", i, ".txt"), "edgelist")
+    }
+   embedding[[j]] <- embeg.df
+   fwrite(embeg.df, str_c(path, "new_embedding_nneig_",n.neig,".tsv"))
+   j <- j + 1  
+   
+  }
+   return(list(embedding.new = embedding, embedding.old = embedding.old))
+}
+
+
+all.result <- graphEmbed(con, path, 3277)
+```
+
+
+```{r, fig.width=10}
+type = "alpha"
+for (type in c("acinar", "activated_stellate","alpha","beta","delta","ductal","endothelial", "gamma")){
+  text <- str_c("conos default type: ", type)
+  
+  # Create a text grob
+  tgrob <- text_grob(text,size = 15)
+  # Draw the text
+  cell_sub_type <- ann.tiny[ann.tiny$cellType == type,]$cell
+    
+    
+  data.plot <- embeg.tiny[rownames(embeg.tiny) %in% cell_sub_type,] 
+  
+  p1 <- ggplot(data.plot) + geom_point(mapping = aes(x=data.plot$x_0, y = data.plot$y_0), colour = "red", alpha = 0.5) 
+  p2 <- ggplot(data.plot) + geom_point(mapping = aes(x=data.plot$x_0.1, y = data.plot$y_0.1), colour = "red", alpha = 0.5)
+  p3 <- ggplot(data.plot) + geom_point(mapping = aes(x=data.plot$x_0.3, y = data.plot$y_0.3), colour = "red", alpha = 0.5) 
+  p4 <- ggplot(data.plot) + geom_point(mapping = aes(x=data.plot$x_0.5, y = data.plot$y_0.5), colour = "red", alpha = 0.5) 
+  p5 <- ggplot(data.plot) + geom_point(mapping = aes(x=data.plot$x_0.8, y = data.plot$y_0.8), colour = "red", alpha = 0.5)
+  p6 <- ggplot(data.plot) + geom_point(mapping = aes(x=data.plot$x_1, y = data.plot$y_1), colour = "red", alpha = 0.5) 
+  
+  plot_0 <- as_ggplot(tgrob) + theme(plot.margin = margin(0,3,0,0, "cm"))
+  ggarrange(NULL,plot_0, NULL, NULL, NULL, NULL, p.conos.old[[1]]+  theme(legend.position = "none"), p.conos.old[[2]]+  theme(legend.position = "none"), p.conos.old[[3]]+  theme(legend.position = "none"), p.conos.old[[4]]+  theme(legend.position = "none"), p.conos.old[[5]]+  theme(legend.position = "none"),p.conos.old[[6]]+  theme(legend.position = "none"), p1,p2,p3,p4,p5,p6, ncol = 6, nrow = 3, common.legend = TRUE, legend="bottom") -> plot_save
+  ggsave(str_c("/home/kvergasova/conos_analysis/conos_default_only_", type, ".png"), plot_save,device = "png" )
+  
+  
+  # ggarrange(NULL,plot_0, NULL, NULL, NULL, NULL, p.conos.old[[1]]+  theme(legend.position = "none"), p.conos.old[[2]]+  theme(legend.position = "none"), p.conos.old[[3]]+  theme(legend.position = "none"), p.conos.old[[4]]+  theme(legend.position = "none"), p.conos.old[[5]]+  theme(legend.position = "none"),p.conos.old[[6]]+  theme(legend.position = "none"), p.conos.old.cell.type[[type]][[1]]+  theme(legend.position = "none"), p.conos.old.cell.type[[type]][[2]]+  theme(legend.position = "none"), p.conos.old.cell.type[[type]][[3]]+  theme(legend.position = "none"), p.conos.old.cell.type[[type]][[4]]+  theme(legend.position = "none"), p.conos.old.cell.type[[type]][[5]]+  theme(legend.position = "none"),p.conos.old.cell.type[[type]][[6]]+  theme(legend.position = "none"), ncol = 6, nrow = 3, common.legend = TRUE, legend="bottom") -> plot_save
+  # ggsave(str_c("/home/kvergasova/conos_analysis/conos_default_", type, ".png"), plot_save,device = "png" )
+}
+```
+
+
+```{r}
+p.conos.cell.type <- list()
+p.conos <- list()
+p.conos.cell.ann <- list()
+j=1
+p.conos.cell.type.only <- list()
+embeg.tiny <- list()
+an.all.cell <- ann.tiny$cellType
+names(an.all.cell) <- ann.tiny$cell
+  #tibble(cell=rownames(cono.t$embeddings$largeVis))
+ j <- 1
+for (n.neig in c(0.05, 0.1, 0.3, 0.5)){
+  #j <- 1
+  
+  embeg.df <- tibble(cell=rownames(cono.t$embeddings$largeVis))
+  cono.t$misc$neighborfilter <- lapply(cono.t$samples, function(x) findCells(x, n.neig))
+  cono.t$misc$add.cells <- FALSE
+  m <- 1
+for (i in c(0, 0.1, 0.3, 0.5, 0.8, 1)){
+  
+  cono.t$buildGraph(k=50, k1 = 100, k.self=5, space='PCA', ncomps=30, n.odgenes=2000, matching.method='mNN', metric='angular', score.component.variance=TRUE, verbose=TRUE,  alignment.strength = i)
+  cono.t$findCommunities(method=leiden.community, resolution=1)
+  cono.t$embedGraph()
+  p.conos.cell.ann[[str_c("n.neig_", n.neig)]][[m]] <-cono.t$plotGraph(group = an.all.cell,mark.groups=FALSE, alpha=0.3,show.legend=TRUE)
+  p.conos[[str_c("n.neig_", n.neig)]][[m]] <- cono.t$plotGraph(color.by='sample', mark.groups=FALSE, alpha=0.1, show.legend=TRUE)
+  add.em <- tibble(x=unname(cono.t$embeddings$largeVis[,1]), y=unname(cono.t$embeddings$largeVis[,2]))
+  add.em$cell <- rownames(cono.t$embeddings$largeVis)
+ # colnames(add.em) <- c(str_c("x_", i),str_c("y_", i))
+  
+  # cono.t$plotGraph(color.by='sample', mark.groups=FALSE, alpha=0.1, show.legend=TRUE)
+  # cono.t$plotGraph(group = an.all.cell,  alpha=0.5)
+  n <- 1
+    for (type in c("acinar", "activated_stellate","alpha","beta","delta","ductal","endothelial", "gamma")){
+      cell.type <- factor(ann.tiny$cellType == type , labels = c('other', type) ) 
+      names(cell.type) <- ann.tiny$cell
+      cell_sub_type <- ann.tiny[ann.tiny$cellType == type,]$cell
+      p.conos.cell.type[[str_c("n.neig_", n.neig)]][[type]][[j]] <-cono.t$plotGraph(group = cell.type,mark.groups=FALSE, alpha=0.1,show.legend=TRUE)
+      
+      data.plot <- add.em[add.em$cell %in% cell_sub_type,] 
+      p0 <- ggplot(data.plot) + geom_point(mapping = aes(x=data.plot$x, y = data.plot$y), colour = "red", alpha = 0.5) + ggtitle(str_c(type, " cells")) + xlim(min(add.em$x), max(add.em$x)) + ylim(min(add.em$y), max(add.em$y))
+      p.conos.cell.type.only[[str_c("n.neig_", n.neig)]][[type]][[j]] <- p0
+      #n <- n +1
+    }
+  add.em <- add.em[,-3]
+  colnames(add.em) <- c(str_c("x_", i),str_c("y_", i))
+  embeg.df<- cbind(embeg.df, add.em)
+  m <- m+1
+}
+ embeg.tiny[[j]] <- embeg.df
+ j <- j + 1   
+}
+  
+```
+
+```{r}
+for (type in c("acinar", "activated_stellate","alpha","beta","delta","ductal","endothelial", "gamma")){
+  text <- str_c("conos new type: ", type)
+  
+  # Create a text grob
+  tgrob <- text_grob(text,size = 15)
+  # Draw the text
+  cell_sub_type <- ann.tiny[ann.tiny$cellType == type,]$cell
+    
+  for (j in 1:4){
+  text <- str_c("conos new type: ", type, "with ", names(p.conos)[j])
+  
+  # Create a text grob
+  tgrob <- text_grob(text,size = 15)
+  data.plot <- embeg.tiny[[j]][embeg.tiny[[j]]$cell %in% cell_sub_type,] 
+  
+  p1 <- ggplot(data.plot) + geom_point(mapping = aes(x=data.plot$`x_0`, y = data.plot$y_0), colour = "red", alpha = 0.5) + xlim(min( embeg.tiny[[j]]$`x_0`), max(embeg.tiny[[j]]$`x_0`)) + ylim(min(embeg.tiny[[j]]$`y_0`), max(embeg.tiny[[j]]$`y_0`))
+  
+  p2 <- ggplot(data.plot) + geom_point(mapping = aes(x=data.plot$`x_0.1`, y = data.plot$y_0.1), colour = "red", alpha = 0.5)+ xlim(min( embeg.tiny[[j]]$`x_0.1`), max(embeg.tiny[[j]]$`x_0.1`)) + ylim(min(embeg.tiny[[j]]$y_0.1), max(embeg.tiny[[j]]$y_0.1))
+  
+  p3 <- ggplot(data.plot) + geom_point(mapping = aes(x=data.plot$x_0.3, y = data.plot$y_0.3), colour = "red", alpha = 0.5)+ xlim(min( embeg.tiny[[j]]$x_0.3), max(embeg.tiny[[j]]$x_0.3)) + ylim(min(embeg.tiny[[j]]$y_0.3), max(embeg.tiny[[j]]$y_0.3))
+  
+  p4 <- ggplot(data.plot) + geom_point(mapping = aes(x=data.plot$x_0.5, y = data.plot$y_0.5), colour = "red", alpha = 0.5) + xlim(min( embeg.tiny[[j]]$x_0.5), max(embeg.tiny[[j]]$x_0.5)) + ylim(min(embeg.tiny[[j]]$y_0.5), max(embeg.tiny[[j]]$y_0.5))
+  
+  p5 <- ggplot(data.plot) + geom_point(mapping = aes(x=data.plot$x_0.8, y = data.plot$y_0.8), colour = "red", alpha = 0.5)+ xlim(min( embeg.tiny[[j]]$x_0.8), max(embeg.tiny[[j]]$x_0.8)) + ylim(min(embeg.tiny[[j]]$y_0.8), max(embeg.tiny[[j]]$y_0.8))
+  
+  p6 <- ggplot(data.plot) + geom_point(mapping = aes(x=data.plot$x_1, y = data.plot$y_1), colour = "red", alpha = 0.5)+ xlim(min( embeg.tiny[[j]]$x_1), max(embeg.tiny[[j]]$x_1)) + ylim(min(embeg.tiny[[j]]$y_1), max(embeg.tiny[[j]]$y_1)) 
+  
+  plot_0 <- as_ggplot(tgrob) + theme(plot.margin = margin(0,3,0,0, "cm"))
+  ggarrange(NULL,plot_0, NULL, NULL, NULL, NULL, p.conos[[j]][[1]]+  theme(legend.position = "none"), p.conos[[j]][[2]]+  theme(legend.position = "none"), p.conos[[j]][[3]]+  theme(legend.position = "none"), p.conos[[j]][[4]]+  theme(legend.position = "none"), p.conos[[j]][[5]]+  theme(legend.position = "none"), p.conos[[j]][[6]]+  theme(legend.position = "none"), 
+            p1 +  theme(legend.position = "none", axis.line=element_blank(),axis.text.x=element_blank(),            axis.text.y=element_blank(),axis.ticks=element_blank(),axis.title.x=element_blank(),axis.title.y=element_blank()),
+            p2 +  theme(legend.position = "none", axis.line=element_blank(),axis.text.x=element_blank(),            axis.text.y=element_blank(),axis.ticks=element_blank(),axis.title.x=element_blank(),axis.title.y=element_blank()),
+            p3 +  theme(legend.position = "none", axis.line=element_blank(),axis.text.x=element_blank(),            axis.text.y=element_blank(),axis.ticks=element_blank(),axis.title.x=element_blank(),axis.title.y=element_blank()),
+            p4 + theme(legend.position = "none", axis.line=element_blank(),axis.text.x=element_blank(),            axis.text.y=element_blank(),axis.ticks=element_blank(),axis.title.x=element_blank(),axis.title.y=element_blank()),
+            p5 +  theme(legend.position = "none", axis.line=element_blank(),axis.text.x=element_blank(),            axis.text.y=element_blank(),axis.ticks=element_blank(),axis.title.x=element_blank(),axis.title.y=element_blank()),
+            p6 +  theme(legend.position = "none", axis.line=element_blank(),axis.text.x=element_blank(),            axis.text.y=element_blank(),axis.ticks=element_blank(),axis.title.x=element_blank(),axis.title.y=element_blank()), 
+            ncol = 6, nrow = 3, common.legend = TRUE, legend="bottom") -> plot_save
+  ggsave(str_c("/home/kvergasova/conos_analysis/conos_new_only_", type,"_", names(p.conos)[j], ".png"), plot_save,device = "png" )
+  
+  
+  # ggarrange(NULL,plot_0, NULL, NULL, NULL, NULL, p.conos.old[[1]]+  theme(legend.position = "none"), p.conos.old[[2]]+  theme(legend.position = "none"), p.conos.old[[3]]+  theme(legend.position = "none"), p.conos.old[[4]]+  theme(legend.position = "none"), p.conos.old[[5]]+  theme(legend.position = "none"),p.conos.old[[6]]+  theme(legend.position = "none"), p.conos.old.cell.type[[type]][[1]]+  theme(legend.position = "none"), p.conos.old.cell.type[[type]][[2]]+  theme(legend.position = "none"), p.conos.old.cell.type[[type]][[3]]+  theme(legend.position = "none"), p.conos.old.cell.type[[type]][[4]]+  theme(legend.position = "none"), p.conos.old.cell.type[[type]][[5]]+  theme(legend.position = "none"),p.conos.old.cell.type[[type]][[6]]+  theme(legend.position = "none"), ncol = 6, nrow = 3, common.legend = TRUE, legend="bottom") -> plot_save
+  # ggsave(str_c("/home/kvergasova/conos_analysis/conos_default_", type, ".png"), plot_save,device = "png" )
+  }
+}
+
+```
+
+
+```{r, fig.width=10}
+pl.list <- list()
+g<-1
+p.cell.type <- list()
+embeg.tiny.list <- list()
+g=1
+p.conos <- list()
+for (n.neig in c(0.05, 0.1, 0.3, 0.5)){
+  pl <- list()
+  #j <- 1
+  embeg.tiny.neigh <- tibble(cell=rownames(cono.t$embeddings$largeVis))
+  cono.t$misc <- lapply(cono.t$samples, function(x) findCells(x, n.neig))
+  cono.t$misc$add.cells <- FALSE
+  for (i in c(0, 0.1, 0.3, 0.5, 0.8, 1)){
+      j <- 1
+     cono.t$buildGraph(k=50, k1 = 100, k.self=5, space='PCA', ncomps=30, n.odgenes=2000, matching.method='mNN', metric='angular', score.component.variance=TRUE, verbose=TRUE,  alignment.strength = i)
+     cono.t$findCommunities(method=leiden.community, resolution=1)
+    cono.t$embedGraph()
+    p.conos[[j]] <- cono.t$plotGraph(color.by='sample', mark.groups=FALSE, alpha=0.1, show.legend=TRUE)
+    for (type in c("acinar", "activated_stellate","alpha","beta","delta","ductal","endothelial", "gamma")){
+      cell.type <- factor(ann.tiny$cellType == type , labels = c('other', type) ) 
+      names(cell.type) <- ann.tiny$cell
+      cell_sub_type <- ann.tiny[ann.tiny$cellType == type,]$cell
+      p.cell.type[[type]][[j]] <-cono.t$plotGraph(group = cell.type,mark.groups=FALSE, alpha=0.1,show.legend=TRUE)
+      
+      data.plot <- add.em[rownames(add.em) %in% cell_sub_type,] 
+      #p0 <- ggplot(data.plot) + geom_point(mapping = aes(x=data.plot$x, y = data.plot$y), colour = "red", alpha = 0.5) + ggtitle(str_c(type, " cells")) + xlab("X") + ylab("Y")
+     # p.cell.type.only[[type]][[j]] <- p0
+  }
+  colnames(add.em) <- c(str_c("x_", i),str_c("y_", i))
+  embeg.tiny.neigh<- cbind(embeg.tiny.neigh, add.em)
+  j <- j + 1  
+  }
+ # pl.list[[g]] <- pl
+  embeg.tiny.list[[g]] <- embeg.tiny.neigh
+  g <- g+1
+}
+
+
+
+
+
+pl.list[[3]][[1]] + theme(legend.position = "none")
+# plot(p.conos.old[[1]])
+# plot(p.conos.old[[2]])
+# p.conos.old[[3]]
+# p.conos.old[[4]]
+# p.conos.old[[5]]
+# p.conos.old[[6]]
+ggarrange(p.conos.old[[1]]+  theme(legend.position = "none"), p.conos.old[[2]]+  theme(legend.position = "none"), p.conos.old[[3]]+  theme(legend.position = "none"), p.conos.old[[4]]+  theme(legend.position = "none"), p.conos.old[[5]]+  theme(legend.position = "none"),p.conos.old[[6]]+  theme(legend.position = "none"),
+        pl.list[[1]][[1]] + theme(legend.position = "none"),
+        pl.list[[1]][[2]] + theme(legend.position = "none"),
+        pl.list[[1]][[3]] + theme(legend.position = "none"),
+        pl.list[[1]][[4]] + theme(legend.position = "none"),
+        pl.list[[1]][[5]] + theme(legend.position = "none"),
+        pl.list[[1]][[6]] + theme(legend.position = "none"),
+        pl.list[[2]][[1]] + theme(legend.position = "none"),
+        pl.list[[2]][[2]] + theme(legend.position = "none"),
+        pl.list[[2]][[3]] + theme(legend.position = "none"),
+        pl.list[[2]][[4]] + theme(legend.position = "none"),
+        pl.list[[2]][[5]] + theme(legend.position = "none"),
+        pl.list[[2]][[6]] + theme(legend.position = "none"),
+        pl.list[[3]][[1]] + theme(legend.position = "none"),
+        pl.list[[3]][[2]] + theme(legend.position = "none"),
+        pl.list[[3]][[3]] + theme(legend.position = "none"),
+        pl.list[[3]][[4]] + theme(legend.position = "none"),
+        pl.list[[3]][[5]] + theme(legend.position = "none"),
+        pl.list[[3]][[6]] + theme(legend.position = "none"),
+        pl.list[[4]][[1]] + theme(legend.position = "none"),
+        pl.list[[4]][[2]] + theme(legend.position = "none"),
+        pl.list[[4]][[3]] + theme(legend.position = "none"),
+        pl.list[[4]][[4]] + theme(legend.position = "none"),
+        pl.list[[4]][[5]] + theme(legend.position = "none"),
+        pl.list[[4]][[6]] + theme(legend.position = "none"),
+          ncol = 6, nrow = 5)
+
+
+
+ggarrange(p.conos.old[[1]]+  theme(legend.position = "none"), p.conos.old[[2]]+  theme(legend.position = "none"), p.conos.old[[3]]+  theme(legend.position = "none"), p.conos.old[[4]]+  theme(legend.position = "none"), p.conos.old[[5]]+  theme(legend.position = "none"),p.conos.old[[6]]+  theme(legend.position = "none"), p.conos.old.cell.type[[1]]+  theme(legend.position = "none"), p.conos.old.cell.type[[2]]+  theme(legend.position = "none"), p.conos.old.cell.type[[3]]+  theme(legend.position = "none"), p.conos.old.cell.type[[4]]+  theme(legend.position = "none"), p.conos.old.cell.type[[5]]+  theme(legend.position = "none"),p.conos.old.cell.type[[6]]+  theme(legend.position = "none"),  ncol = 6, nrow = 2, common.legend = TRUE, legend="bottom")
+```
+```{r}
+text <- "conos default"
+
+# Create a text grob
+tgrob <- text_grob(text,size = 20)
+# Draw the text
+plot_0 <- as_ggplot(tgrob) + theme(plot.margin = margin(0,3,0,0, "cm"))
+ggarrange(NULL,plot_0, NULL, NULL, NULL, NULL, p.conos.old[[1]]+  theme(legend.position = "none"), p.conos.old[[2]]+  theme(legend.position = "none"), p.conos.old[[3]]+  theme(legend.position = "none"), p.conos.old[[4]]+  theme(legend.position = "none"), p.conos.old[[5]]+  theme(legend.position = "none"),p.conos.old[[6]]+  theme(legend.position = "none"),p.conos.old.cell.type[[1]]+  theme(legend.position = "none"), p.conos.old.cell.type[[2]]+  theme(legend.position = "none"), p.conos.old.cell.type[[3]]+  theme(legend.position = "none"), p.conos.old.cell.type[[4]]+  theme(legend.position = "none"), p.conos.old.cell.type[[5]]+  theme(legend.position = "none"),p.conos.old.cell.type[[6]]+  theme(legend.position = "none"), ncol = 6, nrow = 3, common.legend = TRUE, legend="bottom")
+```

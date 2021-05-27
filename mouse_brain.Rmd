@@ -1,0 +1,712 @@
+---
+title: "R Notebook"
+output: html_notebook
+---
+
+
+#SPLiT-seq
+```{r}
+library(data.table)
+library(R.matlab)
+library(pagoda2)
+data1 <-  readMat("SPLiT/GSM3017261_150000_CNS_nuclei.mat")
+```
+#annotation 
+```{r}
+sample_type = str_remove(data1$sample.type, " ")
+unique(sample_type)
+
+cluster_assignment = data1$cluster.assignment
+unique(cluster_assignment)
+
+spinal_cluster_assignment =  str_remove_all(data1$spinal.cluster.assignment, " ")
+unique(spinal_cluster_assignment)
+
+brain_idx <- sample_type %in% c('p2_brain', 'p11_brain')
+adata_rosen <- data1$DGE[brain_idx,]
+rownames(adata_rosen) <- str_c("cell_", 1:nrow(adata_rosen))
+colnames(adata_rosen) <- data1$genes
+dim(adata_rosen)
+ad_sample_type <- sample_type[brain_idx]
+ad_cluster_assignment <- cluster_assignment[brain_idx]
+ad_age <- unname(sapply(sample_type, function(x) strsplit(x, "_")[[1]][[1]]))
+unique(ad_cluster_assignment)
+
+
+cluster_id <- unname(sapply(ad_cluster_assignment, function(x) strsplit(x, " ")[[1]][[1]]))
+region <- unname(sapply(ad_cluster_assignment, function(x) strsplit(x, " ")[[1]][[2]]))
+
+neuro_dict = list('HIPP'= 'HC', 
+                   'SUB' = 'HC', 
+                   'THAL' = 'TH', 
+                   'Medium' = 'STR',
+                   'CLAU' = 'CTX', 
+                   'Purkinje' = 'CB', 
+                   'MTt' = 'MB',
+                   'Nigral' = 'SN',
+                   'Migrating' = 'CB',
+                   'SVZ' = 'STR',
+                   'OEC' = 'OB',
+                    'OB' = "OB",
+                    'MD' = 'MD',
+                    'SC' = 'SC',
+                    'CB' = 'CB', 
+                   'CTX' = 'CTX')
+
+
+region_new <- unlist(sapply(region, function(x) if (is.null(neuro_dict[[x]])){'Unknown'}else{neuro_dict[[x]]}))
+
+table(region_new)
+table(ad_cluster_assignment)
+
+#cell_type_dict = list('61 OPC' = 'oligodendrocyte precursor cell')
+
+neuron <- c('1 OB Mitral/Tufted Eomes', '2 OB Mitral/Tufted Ms4a15',
+       '3 OB Mitral/Tufted Svil', '4 Medium Spiny Neurons',
+       '5 CTX PyrL2/L3 Pappa2', '6 CTX PyrL2/L3/L4 Ntf3', '7 CTX PyrL2/L3 Met',
+       '8 CTX PyrL4 Wnt5b', '9 CTX PyrL2/L3/L4 Mef2c', '10 CTX PyrL4 Rorb',
+       '11 CTX PyrL4/L5', '12 CTX PyrL5 Itgb3', '13 CTX PyrL5 Fezf2',
+       '14 CTX PyrL6a', '15 CTX PyrL5/L6 Sulf1', '16 CTX PyrL5/L6 Npr3',
+       '17 CTX PyrL6', '18 CLAU Pyr', '19 MTt Glut', '20 THAL Glut',
+       '21 THAL Int Six3', '22 Purkinje Early', '23 Purkinje Late',
+       '24 CB Int Progenitor', '25 CB Granule Precursor',
+       '26 CB Int Stellate/Basket', '27 CB Int Golgi/Stellate/Basket',
+       '28 CB Granule', '29 CB Int Precursor', '30 MD Glyc Int',
+       '31 MD Int Rxfp2', '32 Nigral Dopaminergic', '33 HIPP Pyr Cr2',
+       '34 SUB Pyr', '35 HIPP Pyr Crym', '36 HIPP Granule Mki67',
+       '37 HIPP Pyr Precursor', '38 HIPP Pyr Grik4', '39 HIPP Granule Nrp2',
+       '40 HIPP Granule/PyrCA3', '41 HIPP Pyr Npy2r', '42 SC Glut Hmga2',
+       '43 SC Glut Gna14', '44 Migrating Int Lhx6', '45 Migrating Int Trdn',
+       '46 Migrating Int Cpa6', '47 Migrating Int Foxp2',
+       '48 Migrating Int Pbx3', '49 Migrating Int Lgr6',
+       '50 Migrating Int Adarb2', '51 SVZ Stem', '52 Cajal-Retzius',
+       '53 Unresolved', '54 Unresolved Kcng1')                      
+ad_cell_type <- unname(sapply(ad_cluster_assignment, function(x) if (any(sapply(neuron, function(y) str_detect(x, y))) ){'neuron'}else{x}) )
+cell_type <- ad_cell_type 
+cell_type[str_detect(cell_type, '61 OPC')] <-  'oligodendrocyte precursor cell'
+
+oligo <- list('55 Oligo MFOL2',
+       '56 Oligo MFOL1', '57 Oligo MOL', '58 Oligo NFOL1', '59 Oligo COP1',
+       '60 Oligo COP2')
+cell_type[apply(sapply(oligo, function(x) str_detect(cell_type, x)), 1, any)] <- 'oligodendrocyte'
+
+astro <- list('68 Astro Slc7a10', '69 Astro Prdm16', '70 Astro Gfap',
+       '71 Bergmann Glia')
+cell_type[apply(sapply(astro, function(x) str_detect(cell_type, x)), 1, any)] <- 'astrocyte'
+
+peric <- list('65 SMC', '66 VLMC Slc6a13', '67 VLMC Slc47a1')
+cell_type[apply(sapply(peric, function(x) str_detect(cell_type, x)), 1, any)] <- 'brain pericyte'
+
+cell_type[str_detect(cell_type, '63 Microglia')] <- 'microglial cell'
+cell_type[str_detect(cell_type, '62 Macrophage')] <- 'macrophage'
+cell_type[str_detect(cell_type, '72 Ependyma')] <- 'ependymal cell'
+cell_type[str_detect(cell_type, '64 Endothelia')] <- 'endothelial cell'
+cell_type[str_detect(cell_type, '73 OEC')] <- 'olfactory ensheathing cell'
+
+annotation1 <- tibble(cell = rownames(adata_rosen), cell_type = cell_type, region=region_new)
+annotation_split <- tibble(old_cluster_assignment = ad_cluster_assignment, new_cluster = cell_type, region = region_new)
+fwrite(annotation1, "/home/kvergasova/conos_analysis/mouse_brain/annotation_split.tsv")
+fwrite(annotation_split, "/home/kvergasova/conos_analysis/mouse_brain/annotation_split_full.tsv")
+```
+
+```{r}
+#df1 <- adata_rosen[1:3000,]
+id1 <- runif(nrow(adata_rosen), min=0, max=1) > 0.97
+sum(id1)
+df1 <- adata_rosen[id1,]
+#rownames(df1) <- annotation_split$new_cluster[id1]
+colnames(df1) <- str_remove_all(data1$genes, " ")
+#colnames(df1) <- data1$genes
+df1 <- t(df1)
+
+substrRight <- function(x, n){
+  substr(x, nchar(x)-n+1, nchar(x))
+}
+#rm(data1)
+# sum(substrRight(rownames(df1), 1) == " ")
+# rownames(df1)[str_detect(rownames(df1), " ") & substrRight(rownames(df1), 1) != " "]
+# rownames(df1) <- str_remove(rownames(df1), " ")
+#unique( data1$cluster.assignment[1:3000])
+colnames(df1) <- make.unique(colnames(df1), "-unique")
+cm <- df1[, unique(colnames(df1))]
+par(mfrow=c(1,2), mar = c(3.5,3.5,2.0,0.5), mgp = c(2,0.65,0), cex = 1.0)
+hist(log10(colSums(cm)+1), main='molecules per cell', col='cornsilk', xlab='log10(molecules per cell)')
+hist(log10(rowSums(cm)+1), main='molecules per gene', col='cornsilk', xlab='log10(molecules per gene])')
+
+
+counts <- gene.vs.molecule.cell.filter(cm, min.cell.size=300)
+
+hist(log10(rowSums(counts)+1), main='Molecules per gene', xlab='molecules (log10)', col='cornsilk')
+abline(v=1, lty=2, col=2)
+counts <- counts[rowSums(counts)>=10, ]
+dim(counts)
+rownames(counts) <- make.unique(rownames(counts))
+r1 <- Pagoda2$new(counts,log.scale=TRUE, n.cores=2)
+
+r1$adjustVariance(plot=TRUE, gam.k=10)
+r1$calculatePcaReduction(nPcs=50, n.odgenes=3e3)
+r1$makeKnnGraph(k=40, type='PCA', center=TRUE, distance='cosine')
+r1$getKnnClusters(method=infomap.community, type='PCA')
+M <- 30
+r1$getEmbedding(type='PCA', embeddingType = 'largeVis', M=M, perplexity=30, gamma=1/M, alpha=1)
+r1$plotEmbedding(type='PCA', show.legend=FALSE, mark.clusters=TRUE, min.group.size=50, shuffle.colors=FALSE, mark.cluster.cex=1, alpha=0.1, main='clusters (largeVis)')
+#r$getEmbedding(type='PCA', embeddingType='tSNE', perplexity=50,verbose=FALSE)
+#r$plotEmbedding(type='PCA', embeddingType='tSNE', show.legend=FALSE, mark.clusters=TRUE, min.group.size=1, shuffle.colors=FALSE, mark.cluster.cex=1, alpha=0.1, main='clusters (tSNE)')
+r1$getKnnClusters(method=multilevel.community, type='PCA', name='multilevel')
+
+```
+#10X Genomics
+```{r}
+library(loomR)
+lfile <- connect(filename = "l5_all.loom", mode = "r+")
+```
+
+#annotation
+```{r}
+
+lfile[["col_attrs/Taxonomy_group"]][] %>% table()
+lfile[["col_attrs/Region"]][] %>% table()
+lfile[["col_attrs/Subclass"]][] %>% table()
+lfile[["col_attrs/Tissue"]][] %>% table()
+
+region2 <- lfile[["col_attrs/Tissue"]][]
+region_dict2 = list('Amygd'= 'AMY', 
+                    'CA1' = 'HC', 
+                    'Ctx1'= 'CTX', 
+                    'Ctx1.5'= 'CTX', 
+                    'Ctx2'= 'CTX', 
+                    'Ctx3'= 'CTX', 
+                    #'DRG',
+                    'DentGyr' = 'HC', 
+                    #'ENS', 
+                    'Hypoth' = 'HTH', 
+                    'MBd' = 'MB', 
+                    'MBv' = 'MB', 
+                    'Medulla' = 'MD', 
+                    'Pons' = 'PO',
+                    'SScortex' = 'CTX', 
+                    'StriatDor' = 'STR', 
+                    'StriatVent'= 'STR',
+                    #'Sympath', 
+                    'Thal' = 'TH')
+
+region_new2 <- unlist(sapply(region2, function(x) if (is.null(region_dict2[[x]])){x}else{region_dict2[[x]]}))
+table(region_new2)
+#убираем клетки 'DRG', 'ENS', 'Sympath'
+idx <- !region_new2 %in% c('DRG', 'ENS', 'Sympath')
+region_new2_ <- region_new2[idx]
+full.matrix <- lfile$matrix[,]
+full.matrix <- full.matrix[idx,]
+
+gene.names <- lfile[["row_attrs/Gene"]][]
+#cell <- lfile[["col_attrs/CellID"]][]
+
+colnames(full.matrix) <- gene.names
+cell <- lfile[["col_attrs/CellID"]][]
+cell <- cell[idx]
+rownames(full.matrix) <- cell
+
+cell_type2 <- lfile[["col_attrs/Taxonomy_group"]][] 
+cell_type2 <- cell_type2[idx]
+table(cell_type2)
+cell_type2[cell_type2=='oligos']
+
+cell_type2[cell_type2 %in% c('Astrocytes','Subventricular zone radial glia-like cells',
+                                     'Dentate gyrus radial glia-like cells')] = 'astrocyte'
+
+cell_type2[cell_type2 %in% c('Ependymal cells',  'Subcommissural organ hypendymal cells')] = 'ependymal cell'
+
+cell_type2[cell_type2 %in% c('Perivascular macrophages')] = 'macrophage'
+cell_type2[cell_type2 %in% c('Microglia')] = 'microglial cell'
+
+cell_type2[cell_type2 %in% c('Telencephalon inhibitory interneurons',
+       'Telencephalon projecting excitatory neurons',
+       'Telencephalon projecting inhibitory neurons', 
+                                      'Di- and mesencephalon excitatory neurons',
+       'Di- and mesencephalon inhibitory neurons',
+                                      'Cerebellum neurons',
+       'Cholinergic and monoaminergic neurons',
+                                      'Dentate gyrus granule neurons',
+                                      'Non-glutamatergic neuroblasts',
+                                      'Glutamatergic neuroblasts', 'Hindbrain neurons',
+                                      'Spinal cord excitatory neurons',
+                                      'Olfactory inhibitory neurons',
+                                      'Peptidergic neurons',
+       'Spinal cord inhibitory neurons')] = 'neuron'
+
+cell_type2[cell_type2 %in% c('Oligodendrocytes')] = 'oligodendrocyte'
+cell_type2[cell_type2 %in% c('Oligodendrocyte precursor cells')] = 'oligodendrocyte precursor cell'
+
+cell_type2[cell_type2 %in% c('Olfactory ensheathing cells')] = 'olfactory ensheathing cell'
+cell_type2[cell_type2 %in% c('Pericytes')] = 'brain pericyte'
+cell_type2[cell_type2 %in% c('Vascular and leptomeningeal cells', 'Vascular endothelial cells','Vascular smooth muscle cells', 'Choroid epithelial cells')] = 'endothelial cell'
+
+
+table(cell_type2)
+annotation2 <- tibble(cell = cell,cell_type = cell_type2, region = region_new2_ )
+fwrite(annotation2, "/home/kvergasova/conos_analysis/mouse_brain/annotation_loom.tsv")
+```
+
+
+```{r}
+# генерирую случайный вектор T F 
+id <- runif(nrow(full.matrix), min=0, max=1) > 0.98
+sum(id)
+#lfile[["col_attrs/Class"]][id] %>% table()
+tin.matrix <- full.matrix[id, ]
+dim(tin.matrix )
+tin.matrix <- t(tin.matrix)
+
+cm <- tin.matrix[, unique(colnames(tin.matrix ))]
+par(mfrow=c(1,2), mar = c(3.5,3.5,2.0,0.5), mgp = c(2,0.65,0), cex = 1.0)
+hist(log10(colSums(cm)+1), main='molecules per cell', col='cornsilk', xlab='log10(molecules per cell)')
+hist(log10(rowSums(cm)+1), main='molecules per gene', col='cornsilk', xlab='log10(molecules per gene])')
+
+
+counts <- gene.vs.molecule.cell.filter(cm, min.cell.size=400)
+
+hist(log10(rowSums(counts)+1), main='Molecules per gene', xlab='molecules (log10)', col='cornsilk')
+abline(v=1, lty=2, col=2)
+counts <- counts[rowSums(counts)>=10, ]
+dim(counts)
+rownames(counts) <- make.unique(rownames(counts))
+r2 <- Pagoda2$new(counts,log.scale=TRUE, n.cores=2)
+
+r2$adjustVariance(plot=TRUE, gam.k=10)
+r2$calculatePcaReduction(nPcs=50, n.odgenes=3e3)
+r2$makeKnnGraph(k=40, type='PCA', center=TRUE, distance='cosine')
+r2$getKnnClusters(method=infomap.community, type='PCA')
+M <- 30
+r2$getEmbedding(type='PCA', embeddingType = 'largeVis', M=M, perplexity=30, gamma=1/M, alpha=1)
+r2$plotEmbedding(type='PCA', show.legend=FALSE, mark.clusters=TRUE, min.group.size=50, shuffle.colors=FALSE, mark.cluster.cex=1, alpha=0.1, main='clusters (largeVis)')
+#r$getEmbedding(type='PCA', embeddingType='tSNE', perplexity=50,verbose=FALSE)
+#r$plotEmbedding(type='PCA', embeddingType='tSNE', show.legend=FALSE, mark.clusters=TRUE, min.group.size=1, shuffle.colors=FALSE, mark.cluster.cex=1, alpha=0.1, main='clusters (tSNE)')
+r2$getKnnClusters(method=multilevel.community, type='PCA', name='multilevel')
+```
+# Dropseq
+```{r}
+install.packages('~/DropSeq.util_2.0.tar.gz', repos=NULL)
+library(DropSeq.util)
+
+dge.all <- list()
+annotation.dge.all <- list()
+files <- list.files("/home/kvergasova/conos_analysis/mouse_brain/Dropseq/", pattern = "raw.dge.txt")
+i = 1
+for (file in files){
+  pat <- strsplit(file, ".raw")[[1]][1]
+  dge <- loadSparseDge(str_c("/home/kvergasova/conos_analysis/mouse_brain/Dropseq/",pat ,".raw.dge.txt"))
+  #annotation.dge <- tibble()
+  dge.out <- read_rds(str_c("/home/kvergasova/conos_analysis/mouse_brain/Dropseq/",pat,".cell_cluster_outcomes.RDS"))
+  annotation.dge <- tibble(cell = colnames(dge))
+  annotation.dge$region <- strsplit(annotation.dge$cell, "Rep") %>% sapply(function(x) str_sub(x[[1]], 4)) 
+  dge.out$cell <- rownames(dge.out)
+  annotation.dge<-left_join(annotation.dge, dge.out, by ="cell")
+  id1 <- runif(ncol(dge), min=0, max=1) > 0.98
+  dge <- dge[, id1]
+  annotation.dge <- annotation.dge[id1, ]
+  dge.all[[i]] <- dge
+  annotation.dge.all[[i]] <-annotation.dge
+  i <- i + 1
+}
+genes <- rownames(dge.all[[1]])
+dge.all1 <- lapply(dge.all, function(x) x[rownames(x) %in% genes,])
+
+genes <- intersect(genes, rownames(dge.all[[9]]))
+dge.all1 <- lapply(dge.all, function(x) x[rownames(x) %in% genes,])
+dge.all.mat <- do.call("cbind", dge.all1)
+
+
+annotation.dge.all.mat <-   do.call("rbind", annotation.dge.all)
+is.na(annotation.dge.all.mat$subcluster) %>% sum
+annotation.dge.all.mat <- annotation.dge.all.mat[!is.na(annotation.dge.all.mat$subcluster), ]
+dge.all.mat <- dge.all.mat[, !is.na(annotation.dge.all.mat$subcluster)]
+id2 <- runif(nrow(annotation.dge.all.mat), min=0, max=1) > 0.8
+dge.all.mat  <- dge.all.mat[, id2]
+annotation.dge.all.mat <- annotation.dge.all.mat[id2,]
+annotation.dge.all.mat[annotation.dge.all.mat$region == "FCCx3cr1",]$region = 'FC'
+annotation.dge.all.mat[annotation.dge.all.mat$region == "FCAldh1l1",]$region = 'FC'
+annotation.dge.all.mat[annotation.dge.all.mat$region ==  "Hippo",]$region = 'HC'
+annotation.dge.all.mat[annotation.dge.all.mat$region ==   'GPNB',]$region = 'GP'
+annotation.dge.all.mat[annotation.dge.all.mat$region == "ENTSTN",]$region = 'ENT'
+
+dge.an <- read_rds("/home/kvergasova/conos_analysis/mouse_brain/Dropseq/annotation.BrainCellAtlas_Saunders_version_2018.04.01.RDS")
+#dge <- dge[, ]
+
+
+
+```
+#annotation
+```{r}
+annotation.dge.all.mat$subcluster_1 <- lapply(as.character(annotation.dge.all.mat$subcluster), function(x) {
+  if (!x %in% unique(dge.an$subcluster)){
+    return(str_c(x, "-1"))}
+  else{return(x)}
+  }) %>% unlist()
+
+annotation.dge.all.mat$region_subcluster <- str_c(annotation.dge.all.mat$region, "_", as.character(annotation.dge.all.mat$subcluster_1))
+
+unique(dge.an$class)
+unique(annotation.dge.all.mat$region_subcluster)[!unique(annotation.dge.all.mat$region_subcluster) %in% unique(dge.an$tissue_subcluster)]
+all(unique(annotation.dge.all.mat$region_subcluster) %in% unique(dge.an$tissue_subcluster))
+
+select(dge.an, tissue_subcluster, class) %>% left_join(annotation.dge.all.mat, ., by=c("region_subcluster"="tissue_subcluster")) -> annotation.dge.all.mat
+annotation.dge.all.mat <- annotation.dge.all.mat[ annotation.dge.all.mat$class != 'MITOTIC',]
+annotation.dge.all.mat <- annotation.dge.all.mat[ annotation.dge.all.mat$class != 'CHOROID_PLEXUS',]
+
+
+colnames(dge.all.mat)[!colnames(dge.all.mat) %in% annotation.dge.all.mat$cell]
+
+
+dge.all.mat1 <- do.call("cbind", dge.all1)
+
+dge.all.mat1 <- dge.all.mat1[,colnames(dge.all.mat1) %in% annotation.dge.all.mat$cell]
+
+dict2 <- list('ASTROCYTE' = 'astrocyte', 
+              'ENDOTHELIAL_STALK' = 'endothelial cell', 
+              'ENDOTHELIAL_TIP'= 'endothelial cell', 
+              'EPENDYMAL'= 'ependymal cell' ,
+              'MACROPHAGE'= 'macrophage', 
+              'MICROGLIA' = 'microglial cell',
+              'MURAL'= 'endothelial cell',
+              'NEUROGENESIS'= 'neuron',
+              'NEURON' = 'neuron',
+              'OLIGODENDROCYTE'= 'oligodendrocyte', 
+              'POLYDENDROCYTE' = 'oligodendrocyte precursor cell')
+
+
+annotation.dge.all.mat$cell_type <- unlist(sapply(annotation.dge.all.mat$class, function(x) if (is.null(dict2[[x]])){x}else{dict2[[x]]}))
+
+table(annotation.dge.all.mat$cell_type)
+table(annotation.dge.all.mat$region)
+annotation3 <- tibble(cell = annotation.dge.all.mat$cell,cell_type = annotation.dge.all.mat$cell_type, region = annotation.dge.all.mat$region)
+fwrite(annotation3, "/home/kvergasova/conos_analysis/mouse_brain/annotation_dropseq.tsv")
+```
+
+
+
+```{r}
+cm <- dge.all.mat1[, unique(colnames(dge.all.mat1))]
+par(mfrow=c(1,2), mar = c(3.5,3.5,2.0,0.5), mgp = c(2,0.65,0), cex = 1.0)
+hist(log10(colSums(cm)+1), main='molecules per cell', col='cornsilk', xlab='log10(molecules per cell)')
+hist(log10(rowSums(cm)+1), main='molecules per gene', col='cornsilk', xlab='log10(molecules per gene])')
+
+
+counts <- gene.vs.molecule.cell.filter(cm, min.cell.size=100)
+
+hist(log10(rowSums(counts)+1), main='Molecules per gene', xlab='molecules (log10)', col='cornsilk')
+abline(v=1, lty=2, col=2)
+counts <- counts[rowSums(counts)>=10, ]
+dim(counts)
+rownames(counts) <- make.unique(rownames(counts))
+r3 <- Pagoda2$new(counts,log.scale=TRUE, n.cores=2)
+
+r3$adjustVariance(plot=TRUE, gam.k=10)
+r3$calculatePcaReduction(nPcs=50, n.odgenes=3e3)
+r3$makeKnnGraph(k=40, type='PCA', center=TRUE, distance='cosine')
+r3$getKnnClusters(method=infomap.community, type='PCA')
+M <- 30
+r3$getEmbedding(type='PCA', embeddingType = 'largeVis', M=M, perplexity=30, gamma=1/M, alpha=1)
+r3$plotEmbedding(type='PCA', show.legend=FALSE, mark.clusters=TRUE, min.group.size=50, shuffle.colors=FALSE, mark.cluster.cex=1, alpha=0.1, main='clusters (largeVis)')
+#r$getEmbedding(type='PCA', embeddingType='tSNE', perplexity=50,verbose=FALSE)
+#r$plotEmbedding(type='PCA', embeddingType='tSNE', show.legend=FALSE, mark.clusters=TRUE, min.group.size=1, shuffle.colors=FALSE, mark.cluster.cex=1, alpha=0.1, main='clusters (tSNE)')
+r3$getKnnClusters(method=multilevel.community, type='PCA', name='multilevel')
+```
+
+# TM
+```{r}
+my <- fread("TM/FACS/Brain_Myeloid-counts.csv")
+no.my <- fread("TM/FACS/Brain_Non-Myeloid-counts.csv")
+
+tm <- cbind(my, no.my)
+rownames(tm) <- tm$V1
+ann.tm <- fread("TM/annotations_FACS.csv")
+```
+
+#annotation and cell selection
+```{r}
+sum(ann.tm$cell %in% colnames(tm))
+#tm <-as(tm, "sparseMatrix")  
+#tm <- tm[ which( colnames(tm ) %in% ann.tm$cell)]
+#tm <- select(tm , one_of(ann.tm$cell))
+cells4 <-intersect(colnames(tm),ann.tm$cell )
+#tm <- tm[names(tm) %in% cells4]
+tm1 <- as.matrix(tm)
+tm2 <- tm1[,colnames(tm1) %in% cells4]
+rownames(tm2) <- tm$V1
+ann.tm <- ann.tm[ann.tm$cell %in% cells4,]
+
+table(ann.tm$subtissue)
+table(ann.tm$cell_ontology_class)
+
+tabula_dict = list('Cerebellum' = 'CB', 
+                    'Cortex' = 'CTX', 
+                    'Hippocampus' = 'HC', 
+                    'Striatum' = 'STR')
+
+ann.tm$region <- unlist(sapply(ann.tm$subtissue, function(x) if (is.null(tabula_dict[[x]])){"Unknown"}else{tabula_dict[[x]]}))
+
+ann.tm$cell_ontology_class[ann.tm$cell_ontology_class %in% c('Bergmann glial cell', 'astrocyte of the cerebral cortex')] <- 'astrocyte'
+annotation4 <- tibble(cell = ann.tm$cell, cell_type = ann.tm$cell_ontology_class, region = ann.tm$region)
+fwrite(ann.tm, "/home/kvergasova/conos_analysis/mouse_brain/annotation_TM_full.tsv")
+fwrite(annotation4, "/home/kvergasova/conos_analysis/mouse_brain/annotation_TM.tsv")
+```
+
+
+```{r}
+id <- runif(7856, min=0, max=1) > 0.6
+
+tm.tiny <- tm2[,id]
+#tm.tiny <-  select(tm2, one_of(colnames(tm2)[id]))
+dim(tm.tiny)
+typeof(tm.tiny)
+#tm.tiny <- as.numeric(tm.tiny)
+class(tm.tiny) <- "numeric"
+#tm.tiny1 <- as.matrix(tm.tiny)
+#rownames(tm.tiny1) <- rownames(tm.tiny)
+```
+
+
+```{r}
+cm <- tm.tiny[, unique(colnames(tm.tiny))]
+par(mfrow=c(1,2), mar = c(3.5,3.5,2.0,0.5), mgp = c(2,0.65,0), cex = 1.0)
+hist(log10(colSums(cm)+1), main='molecules per cell', col='cornsilk', xlab='log10(molecules per cell)')
+hist(log10(rowSums(cm)+1), main='molecules per gene', col='cornsilk', xlab='log10(molecules per gene])')
+
+
+counts <- gene.vs.molecule.cell.filter(cm, min.cell.size=80000,max.cell.size=10000000 )
+hist(log10(rowSums(counts)+1), main='Molecules per gene', xlab='molecules (log10)', col='cornsilk')
+abline(v=1, lty=2, col=2)
+counts <- counts[rowSums(counts)>=10, ]
+dim(counts)
+rownames(counts) <- make.unique(rownames(counts))
+r4 <- Pagoda2$new(counts,log.scale=TRUE, n.cores=2)
+
+r4$adjustVariance(plot=TRUE, gam.k=10)
+r4$calculatePcaReduction(nPcs=50, n.odgenes=3e3)
+r4$makeKnnGraph(k=40, type='PCA', center=TRUE, distance='cosine')
+r4$getKnnClusters(method=infomap.community, type='PCA')
+M <- 30
+r4$getEmbedding(type='PCA', embeddingType = 'largeVis', M=M, perplexity=30, gamma=1/M, alpha=1)
+r4$plotEmbedding(type='PCA', show.legend=FALSE, mark.clusters=TRUE, min.group.size=50, shuffle.colors=FALSE, mark.cluster.cex=1, alpha=0.1, main='clusters (largeVis)')
+#r$getEmbedding(type='PCA', embeddingType='tSNE', perplexity=50,verbose=FALSE)
+#r$plotEmbedding(type='PCA', embeddingType='tSNE', show.legend=FALSE, mark.clusters=TRUE, min.group.size=1, shuffle.colors=FALSE, mark.cluster.cex=1, alpha=0.1, main='clusters (tSNE)')
+r4$getKnnClusters(method=multilevel.community, type='PCA', name='multilevel')
+```
+
+```{r}
+library(conos)
+panel <- list("SPLiT-seq" = r1, "10Xs" = r2, "Dropseq" = r3, "Tabula Muris" = r4)
+save(panel, file = "/home/kvergasova/conos_analysis/mouse_brain/mouse_brain_tiny.RData")
+
+#load("mouse_brain_tiny.RData")
+saveRDS(panel, file =  "/home/kvergasova/conos_analysis/mouse_brain/mouse_brain_tiny.rds")
+conB <- Conos$new(panel, n.cores=4)
+```
+
+```{r}
+findCells <- function(sample, k = 0.05){
+  #k <- dim(sample$reductions$PCA)[1]*per
+  n.cells <-  round(dim(sample$reductions$PCA)[1]*k)
+  mat <- conos:::getNeighborMatrix(p1 = sample$reductions$PCA, p2=NULL, k = n.cells, matching = "NN")
+  colnames(mat) <- rownames(sample$reductions$PCA)
+  rownames(mat) <- rownames(sample$reductions$PCA)
+  num.elements <- colSums(mat!=0)
+  cell.distance <- mat@x
+  list.cell <- list()
+  j <- 1
+  for (i in 1:dim(mat)[1]){
+    sep <-num.elements[i]  
+    cells <- setNames(cell.distance[j:(sep+j-1)], colnames(mat)[mat@i[j:(sep+j-1)]+1])
+    cells <- cells[order(cells, decreasing = T)[1:n.cells]]
+    list.cell <- c(list.cell, list(cells))
+    j <- j + sep
+  }
+  names(list.cell) <- colnames(mat)
+  #sample$misc <- list.cell
+  return(list.cell)
+}
+
+conB$misc <- NULL
+conB$buildGraph(k=50, k1 = 100, k.self=5, space='PCA', ncomps=30, n.odgenes=2000, matching.method='mNN', metric='angular', score.component.variance=TRUE, verbose=TRUE, alignment.strength = 1)
+conB$findCommunities(method=leiden.community, resolution=1)
+conB$embedGraph()
+
+
+#pl.brain.old.sam[[j]]<-conB$plotGraph(group = ann.sim , mark.groups=FALSE, alpha=0.1, show.legend=TRUE)
+conB$plotGraph(color.by='sample',mark.groups=FALSE, alpha=0.1, show.legend=TRUE)
+
+
+
+
+```
+
+```{r}
+
+annot_tm <- fread("/home/kvergasova/conos_analysis/mouse_brain/annotation_TM.tsv")
+annot_tm$protocol <- rep("tabula_muris", times = nrow(annot_tm))
+annot_dropseq <- fread("/home/kvergasova/conos_analysis/mouse_brain/annotation_dropseq.tsv")
+annot_dropseq$protocol <- rep("Dropseq", times = nrow(annot_dropseq))
+annot_loom <- fread("/home/kvergasova/conos_analysis/mouse_brain/annotation_loom.tsv")
+annot_loom$protocol <- rep("10X", times = nrow(annot_loom))
+annot_split <- fread( "/home/kvergasova/conos_analysis/mouse_brain/annotation_split.tsv")
+annot_split$protocol <- rep("Split_seq", times = nrow(annot_split))
+#load("mouse_brain_tiny.RData")
+panel <- readRDS("/home/kvergasova/conos_analysis/mouse_brain/mouse_brain_tiny.rds")
+conB <- Conos$new(panel, n.cores=4)
+conB$misc <- NULL
+conB$buildGraph(k=50, k1 = 100, k.self=5, space='PCA', ncomps=30, n.odgenes=2000, matching.method='mNN', metric='angular', score.component.variance=TRUE, verbose=TRUE, alignment.strength = 0)
+conB$findCommunities(method=leiden.community, resolution=1)
+conB$embedGraph()
+cells <- rownames(conB$embeddings$largeVis)
+
+annotation_all <- rbind(annot_tm, annot_dropseq, annot_loom, annot_split)
+annotation_all <- annotation_all[!duplicated(annotation_all$cell),]
+ann_plot <- setNames(annotation_all[annotation_all$cell %in% cells,]$cell_type, annotation_all[annotation_all$cell %in% cells,]$cell)
+
+saveRDS(ann_plot, "/home/kvergasova/conos_analysis/mouse_brain/mouse_brain_tiny_annotation.rds")
+fwrite(annotation_all,  "/home/kvergasova/conos_analysis/mouse_brain/mouse_brain_tiny_annotation_table.tsv" )
+```
+
+
+
+```{r}
+pl.brain.old.sam <- list()
+pl.brain.old.group <- list()
+j <- 1
+path <- "/home/kvergasova/conos_analysis/mouse_brain/"
+embeg.brain.old <- tibble(cell=rownames(conB$embeddings$largeVis))
+ for (i in c(0, 0.1, 0.3, 0.5, 0.8, 1)){
+  conB$misc <- NULL    
+  conB$buildGraph(k=50, k1 = 100, k.self=5, space='PCA', ncomps=30, n.odgenes=2000, matching.method='mNN', metric='angular', score.component.variance=TRUE, verbose=TRUE,  alignment.strength = i)
+  
+  conB$findCommunities(method=leiden.community, resolution=1)
+  conB$embedGraph()
+  #cono.tiny$plotGraph(alpha=0.1)
+  df <- tibble(conB$embeddings$largeVis[,1], conB$embeddings$largeVis[,2])
+  colnames(df) <- c(str_c("x_", i), str_c("y_", i))
+  embeg.brain.old <- cbind(embeg.brain.old, df)
+  #ann.sim <- setNames(sim2$Group, sim2$Cell)
+  #pl.brain.old.sam[[j]]<-conB$plotGraph(group = ann.sim , mark.groups=FALSE, alpha=0.1, show.legend=TRUE)
+  pl.brain.old.sam[[j]]<- conB$plotGraph(color.by='sample',mark.groups=FALSE, alpha=0.1, show.legend=TRUE)
+  #pl.brain.old.sam[[j]] <- conB$plotGraph(color.by='sample',mark.groups=FALSE, alpha=0.1, show.legend=TRUE)
+  pl.brain.old.group[[j]] <- conB$plotGraph(group = ann_plot,mark.groups=FALSE, alpha=0.1, show.legend=TRUE)
+  j <- j +1
+  saveRDS(conB$graph, str_c(path, "mouse_brain_old_alstr_", i, ".rds"))
+  write_graph(conB$graph, str_c(path,"mouse_brain_old_alstr_", i, ".txt"), "edgelist")
+ }
+
+fwrite(embeg.brain.old, "/home/kvergasova/conos_analysis/mouse_brain/embedding_mouse_brain_old.tsv")
+
+
+pl.brain.sam <- list()
+pl.brain.group <- list()
+embeg.brain <- list()
+for (n.neig in c(0.05, 0.1, 0.3, 0.5)){
+  #j <- 1
+  
+  embeg.brain.df <- tibble(cell=rownames(conB$embeddings$largeVis))
+  conB$misc$neighborfilter <- lapply(conB$samples, function(x) findCells(x, n.neig))
+  conB$misc$add.cells <- FALSE
+  j <- 1
+  for (i in c(0, 0.1, 0.3, 0.5, 0.8, 1)){
+  conB$buildGraph(k=50, k1 = 100, k.self=5, space='PCA', ncomps=30, n.odgenes=2000, matching.method='mNN', metric='angular', score.component.variance=TRUE, verbose=TRUE,  alignment.strength = i)
+  
+  conB$findCommunities(method=leiden.community, resolution=1)
+  conB$embedGraph()
+  #cono.tiny$plotGraph(alpha=0.1)
+  df <- tibble(conB$embeddings$largeVis[,1], conB$embeddings$largeVis[,2])
+  colnames(df) <- c(str_c("x_", i), str_c("y_", i))
+  embeg.brain.df <- cbind(embeg.brain.df, df)
+  #ann.sim <- setNames(sim2$Group, sim2$Cell)
+  #pl.sim.group[[str_c("n.neig_", n.neig)]][[j]]<-conS$plotGraph(group = ann.sim , mark.groups=FALSE, alpha=0.1, show.legend=TRUE)
+  pl.brain.sam[[str_c("n.neig_", n.neig)]][[j]] <- conB$plotGraph(color.by='sample',mark.groups=FALSE, alpha=0.1, show.legend=TRUE)
+  pl.brain.group[[str_c("n.neig_", n.neig)]][[j]]  <-  conB$plotGraph(group = ann_plot,mark.groups=FALSE, alpha=0.1, show.legend=TRUE)
+  saveRDS(conB$graph, str_c(path, "mouse_brain_nneig_",n.neig, "_alstr_", i, ".rds"))
+  write_graph(conB$graph, str_c(path, "mouse_brain_nneig_",n.neig, "_alstr_", i, ".txt"), "edgelist")
+  j <- j +1
+  }
+  embeg.brain[[str_c("n.neig_", n.neig)]] <- embeg.brain.df
+}
+      
+ saveRDS(embeg.brain, str_c(path, "mouse_brain_new.rds"))
+
+```
+
+```{r}
+ggarrange(pl.brain.old.group[[1]]+  theme(legend.position = "none"), pl.brain.old.group[[2]]+  theme(legend.position = "none"), pl.brain.old.group[[3]]+  theme(legend.position = "none"), pl.brain.old.group[[4]]+  theme(legend.position = "none"), pl.brain.old.group[[5]]+  theme(legend.position = "none"),pl.brain.old.group[[6]]+  theme(legend.position = "none"),
+        pl.brain.group[[1]][[1]] + theme(legend.position = "none"),
+        pl.brain.group[[1]][[2]] + theme(legend.position = "none"),
+        pl.brain.group[[1]][[3]] + theme(legend.position = "none"),
+        pl.brain.group[[1]][[4]] + theme(legend.position = "none"),
+        pl.brain.group[[1]][[5]] + theme(legend.position = "none"),
+        pl.brain.group[[1]][[6]] + theme(legend.position = "none"),
+        pl.brain.group[[2]][[1]] + theme(legend.position = "none"),
+        pl.brain.group[[2]][[2]] + theme(legend.position = "none"),
+        pl.brain.group[[2]][[3]] + theme(legend.position = "none"),
+        pl.brain.group[[2]][[4]] + theme(legend.position = "none"),
+        pl.brain.group[[2]][[5]] + theme(legend.position = "none"),
+        pl.brain.group[[2]][[6]] + theme(legend.position = "none"),
+        pl.brain.group[[3]][[1]] + theme(legend.position = "none"),
+        pl.brain.group[[3]][[2]] + theme(legend.position = "none"),
+        pl.brain.group[[3]][[3]] + theme(legend.position = "none"),
+        pl.brain.group[[3]][[4]] + theme(legend.position = "none"),
+        pl.brain.group[[3]][[5]] + theme(legend.position = "none"),
+        pl.brain.group[[3]][[6]] + theme(legend.position = "none"),
+        pl.brain.group[[4]][[1]] + theme(legend.position = "none"),
+        pl.brain.group[[4]][[2]] + theme(legend.position = "none"),
+        pl.brain.group[[4]][[3]] + theme(legend.position = "none"),
+        pl.brain.group[[4]][[4]] + theme(legend.position = "none"),
+        pl.brain.group[[4]][[5]] + theme(legend.position = "none"),
+        pl.brain.group[[4]][[6]] + theme(legend.position = "none"),
+          ncol = 6, nrow = 5)
+
+
+
+ggarrange(pl.brain.old.sam[[1]]+  theme(legend.position = "none"), pl.brain.old.sam[[2]]+  theme(legend.position = "none"), pl.brain.old.sam[[3]]+  theme(legend.position = "none"), pl.brain.old.sam[[4]]+  theme(legend.position = "none"), pl.brain.old.sam[[5]]+  theme(legend.position = "none"),pl.brain.old.sam[[6]]+  theme(legend.position = "none"),
+        pl.brain.sam[[1]][[1]] + theme(legend.position = "none"),
+        pl.brain.sam[[1]][[2]] + theme(legend.position = "none"),
+        pl.brain.sam[[1]][[3]] + theme(legend.position = "none"),
+        pl.brain.sam[[1]][[4]] + theme(legend.position = "none"),
+        pl.brain.sam[[1]][[5]] + theme(legend.position = "none"),
+        pl.brain.sam[[1]][[6]] + theme(legend.position = "none"),
+        pl.brain.sam[[2]][[1]] + theme(legend.position = "none"),
+        pl.brain.sam[[2]][[2]] + theme(legend.position = "none"),
+        pl.brain.sam[[2]][[3]] + theme(legend.position = "none"),
+        pl.brain.sam[[2]][[4]] + theme(legend.position = "none"),
+        pl.brain.sam[[2]][[5]] + theme(legend.position = "none"),
+        pl.brain.sam[[2]][[6]] + theme(legend.position = "none"),
+        pl.brain.sam[[3]][[1]] + theme(legend.position = "none"),
+        pl.brain.sam[[3]][[2]] + theme(legend.position = "none"),
+        pl.brain.sam[[3]][[3]] + theme(legend.position = "none"),
+        pl.brain.sam[[3]][[4]] + theme(legend.position = "none"),
+        pl.brain.sam[[3]][[5]] + theme(legend.position = "none"),
+        pl.brain.sam[[3]][[6]] + theme(legend.position = "none"),
+        pl.brain.sam[[4]][[1]] + theme(legend.position = "none"),
+        pl.brain.sam[[4]][[2]] + theme(legend.position = "none"),
+        pl.brain.sam[[4]][[3]] + theme(legend.position = "none"),
+        pl.brain.sam[[4]][[4]] + theme(legend.position = "none"),
+        pl.brain.sam[[4]][[5]] + theme(legend.position = "none"),
+        pl.brain.sam[[4]][[6]] + theme(legend.position = "none"),
+          ncol = 6, nrow = 5)
+```
+
+```{r}
+conB$misc$neighborfilter <- lapply(conB$samples, function(x) findCells(x, n.neig))
+conB$misc$neighborfilter <-NULL
+conB$misc$add.cells <- TRUE
+conB$misc$add.cells.times <-4
+conB$buildGraph(k=50, k1 = 100, k.self=5, space='PCA', ncomps=30, n.odgenes=2000, matching.method='mNN', metric='angular', score.component.variance=TRUE, verbose=TRUE,  alignment.strength = 0)
+  
+conB$findCommunities(method=leiden.community, resolution=1)
+conB$embedGraph()
+conB$plotGraph(color.by='sample',mark.groups=FALSE, alpha=0.4, show.legend=TRUE)
+conB$plotGraph(groups = cells,mark.groups=FALSE, alpha=0.1, show.legend=TRUE)
+cells.names <- rownames(conB$embedding)
+cells <- rep("no info", length.out = length(cells.names))
+cells[cells.names %in% conB$misc$cells.zero[[1]]] = "cells with zero neigh"
+cells[cells.names %in% conB$misc$cells.add.to.zero[[1]]] = "cells add to zero cells"
+cells[cells.names %in% conB$misc$cells.zero[[4]]] = "cells with neigh with no neigh"
+names(cells) <- cells.names
+
+```
+
