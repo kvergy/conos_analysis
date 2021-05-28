@@ -13,16 +13,19 @@ library(ggpubr)
 ```
 #загружаем панель и аннотацию
 ```{r}
-pan.tiny <- read_rds(file = "/home/kvergasova/conos_analysis/mouse_brain/simulations/panel_sim2.rds")
+pan.tiny <- read_rds(file = "/home/kvergasova/conos_analysis/simulations/panel_sim2.rds")
+#pan.tiny <- readRDS(file = "/home/kvergasova/conos_analysis/data_tiny.rds")
+#con <- Conos$new(pan.tiny)
 #pan.b <- readRDS(file = "data_big.rds")
 # pan.b <- readRDS(file = "data_big.rds")
 con <- Conos$new(pan.tiny)
 
-conos_old <- readRDS("/home/kvergasova/conos_analysis/conos_old.rds")
-dim(conos_old$embedding)
+# conos_old <- readRDS("/home/kvergasova/conos_analysis/conos_old.rds")
+# dim(conos_old$embedding)
 #saveRDS(panel.tiny, "/home/kvergasova/conos_analysis/data_tiny_clear.rds")
 ```
 
+#функция ищет соседей
 ```{r}
 findCells <- function(sample, k = 0.05){
   #k <- dim(sample$reductions$PCA)[1]*per
@@ -47,13 +50,12 @@ findCells <- function(sample, k = 0.05){
 }
 ```
 
-#сохраняем граф и эмбэдинг
+#сохраняем граф и эмбэдинг в цикле для различных параметров силы выравнивания и количества разрешенных соседей
 ```{r}
-#pan.tiny <- readRDS(file = "/home/kvergasova/conos_analysis/data_tiny.rds")
-#con <- Conos$new(pan.tiny)
+
 #path <- "/home/kvergasova/conos_analysis/pancreatic_clear_data2/"
-path <- "/home/kvergasova/conos_analysis/mouse_brain/simulations/"
-graphEmbed <- function(con, path, ncell){
+path <- "/home/kvergasova/conos_analysis/simulations/"
+#graphEmbed <- function(con, path, ncell){
 
 embedding.old <- tibble(.rows = ncell)
 p.conos.old <- list()
@@ -106,8 +108,8 @@ for (i in c(0, 0.1, 0.3, 0.5, 0.8, 1)){
    g <- g+1
    
   }
-   return(list(embedding.new = embedding, embedding.old = embedding.old))
-}
+#   return(list(embedding.new = embedding, embedding.old = embedding.old))
+#}
 
 
 all.result <- graphEmbed(con, path, 3277)
@@ -120,14 +122,14 @@ all.result <- graphEmbed(con, path, 3277)
 ```
 #annotation
 ```{r}
-design <- read_rds("/home/kvergasova/conos_analysis/design.rds")
-annotation_clean <- tibble(cell = rownames(con$embedding))
-ann <- tibble(cell = names(design$Protocol), protocol = unname(design$Protocol), cell_type = unname(design$CellType))
-
-all(rownames(con$embedding) %in% ann$cell_name)
-
-ann$cell_name <- str_split_fixed(ann$cell, "_GSM", 2)[,1]
-fwrite(ann,"/home/kvergasova/conos_analysis/pancreatic_annotation.tsv")
+# design <- read_rds("/home/kvergasova/conos_analysis/design.rds")
+# annotation_clean <- tibble(cell = rownames(con$embedding))
+# ann <- tibble(cell = names(design$Protocol), protocol = unname(design$Protocol), cell_type = unname(design$CellType))
+# 
+# all(rownames(con$embedding) %in% ann$cell_name)
+# 
+# ann$cell_name <- str_split_fixed(ann$cell, "_GSM", 2)[,1]
+# fwrite(ann,"/home/kvergasova/conos_analysis/pancreatic_annotation.tsv")
 
 annotation <- fread(str_c(path, "annotation_sim2.tsv"))
 ann.pl <- filter(annotation, cell %in% rownames(con$embedding) )
@@ -165,23 +167,14 @@ ggarrange(p.conos.old[[1]]+  theme(legend.position = "none"), p.conos.old[[2]]+ 
 
 # строим графики гриды с раскраской по батчам
 ```{r}
-path <- "/home/kvergasova/conos_analysis/pancreatit_data/"
-
-
-ggplot(embed.df) + geom_point(aes(x = embed.df$x_1, y = embed.df$y_1, color = embed.df$ann, alpha=0.4))
+# path <- "/home/kvergasova/conos_analysis/pancreatit_data/"
+# 
+# 
+# ggplot(embed.df) + geom_point(aes(x = embed.df$x_1, y = embed.df$y_1, color = embed.df$ann, alpha=0.4))
 
 ```
 
 
-
-
-```{r}
-con$misc <- NULL
-con$buildGraph(k=30, k1 = 50, k.self=5, space='PCA', ncomps=30, n.odgenes=2000, matching.method='mNN', metric='angular', score.component.variance=TRUE, verbose=TRUE)
-con$findCommunities(method=leiden.community, resolution=1)
-con$embedGraph()
-con$plotGraph(color.by='sample', mark.groups=FALSE, alpha=0.1, show.legend=TRUE)
-```
 
 # строим графики гриды по типам клеток и по батчам 2 строчки батч и клетки
 ```{r}
@@ -190,14 +183,21 @@ con$plotGraph(color.by='sample', mark.groups=FALSE, alpha=0.1, show.legend=TRUE)
 
 # строим графики гриды по типам клеток по всем  al.str для какого-то n.neigh
 ```{r, fig.width=25, fig.height=7}
-path <- "/home/kvergasova/conos_analysis/pancreatit_data/"
+#path <- "/home/kvergasova/conos_analysis/pancreatit_data/"
 #path <- "/home/kvergasova/conos_analysis/pancreatic_clear_data2/"
-data.new <- list()
-ann.tiny <- fread("/home/kvergasova/conos_analysis/annotation_tiny_data.tsv")
-annotation <- setNames(ann.tiny$cellType, ann.tiny$cell)
-table(ann.tiny$cellType)[table(ann.tiny$cellType) > 40]
-library(patchwork)
+# data.new <- list()
+# ann.tiny <- fread("/home/kvergasova/conos_analysis/annotation_tiny_data.tsv")
+# annotation <- setNames(ann.tiny$cellType, ann.tiny$cell)
+# table(ann.tiny$cellType)[table(ann.tiny$cellType) > 40]
+annotation <- fread("/home/kvergasova/conos_analysis/simulations/annotation_sim2.tsv")
+annotation
+# annotation <- setNames(ann.tiny$cellType, ann.tiny$cell)
 
+library(patchwork)
+```
+
+
+```{r, fig.width=25, fig.height=7}
 for (file in list.files(path, pattern = glob2rx("new*tsv"))){
   name <- str_remove(str_remove(file, "new_embedding_"), ".tsv")
   data.new[[name]] <- fread(str_c(path,file))
@@ -294,27 +294,6 @@ for (type in c("acinar", "activated_stellate","alpha","beta","delta","ductal","e
 
 
 
-  #  wrap_plots(p.all, ncol=6, nrow = 5)
-  #  ggarrange(NULL, NULL,plot_0, NULL, NULL, NULL, p1,p2,p3,p4,p5,p6,  ncol = 6, nrow = 5, common.legend = TRUE, legend="bottom") 
-  # ggarrange(NULL, NULL,plot_0, NULL, NULL, NULL, p1,p2,p3,p4,p5,p6,  ncol = 6, nrow = 2, common.legend = TRUE, legend="bottom") 
-  #           
-  #           
-  #           
-  #           p1 +  theme(legend.position = "none", axis.line=element_blank(),axis.text.x=element_blank(),            axis.text.y=element_blank(),axis.ticks=element_blank(),axis.title.x=element_blank(),axis.title.y=element_blank()),
-  #           p2 +  theme(legend.position = "none", axis.line=element_blank(),axis.text.x=element_blank(),            axis.text.y=element_blank(),axis.ticks=element_blank(),axis.title.x=element_blank(),axis.title.y=element_blank()),
-  #           p3 +  theme(legend.position = "none", axis.line=element_blank(),axis.text.x=element_blank(),            axis.text.y=element_blank(),axis.ticks=element_blank(),axis.title.x=element_blank(),axis.title.y=element_blank()),
-  #           p4 + theme(legend.position = "none", axis.line=element_blank(),axis.text.x=element_blank(),            axis.text.y=element_blank(),axis.ticks=element_blank(),axis.title.x=element_blank(),axis.title.y=element_blank()),
-  #           p5 +  theme(legend.position = "none", axis.line=element_blank(),axis.text.x=element_blank(),            axis.text.y=element_blank(),axis.ticks=element_blank(),axis.title.x=element_blank(),axis.title.y=element_blank()),
-  #           p6 +  theme(legend.position = "none", axis.line=element_blank(),axis.text.x=element_blank(),            axis.text.y=element_blank(),axis.ticks=element_blank(),axis.title.x=element_blank(),axis.title.y=element_blank()), 
-  #           ncol = 6, nrow = 3, common.legend = TRUE, legend="bottom") -> plot_save
-  # ggsave(str_c("/home/kvergasova/conos_analysis/conos_new_only_", type,"_", names(p.conos)[j], ".png"), plot_save,device = "png" )
-  # 
-  
-  # ggarrange(NULL,plot_0, NULL, NULL, NULL, NULL, p.conos.old[[1]]+  theme(legend.position = "none"), p.conos.old[[2]]+  theme(legend.position = "none"), p.conos.old[[3]]+  theme(legend.position = "none"), p.conos.old[[4]]+  theme(legend.position = "none"), p.conos.old[[5]]+  theme(legend.position = "none"),p.conos.old[[6]]+  theme(legend.position = "none"), p.conos.old.cell.type[[type]][[1]]+  theme(legend.position = "none"), p.conos.old.cell.type[[type]][[2]]+  theme(legend.position = "none"), p.conos.old.cell.type[[type]][[3]]+  theme(legend.position = "none"), p.conos.old.cell.type[[type]][[4]]+  theme(legend.position = "none"), p.conos.old.cell.type[[type]][[5]]+  theme(legend.position = "none"),p.conos.old.cell.type[[type]][[6]]+  theme(legend.position = "none"), ncol = 6, nrow = 3, common.legend = TRUE, legend="bottom") -> plot_save
-  # ggsave(str_c("/home/kvergasova/conos_analysis/conos_default_", type, ".png"), plot_save,device = "png" )
-  
-
-
 
 ```
 
@@ -329,7 +308,7 @@ for (type in c("acinar", "activated_stellate","alpha","beta","delta","ductal","e
   # # Create a text grob
   # tgrob <- text_grob(text,size = 11)
   data.plot <- data.new[[j]]
-  data.plot <- left_join(data.plot, ann.tiny, by = "cell")
+  data.plot <- left_join(data.plot, annotation, by = "cell")
   p1 <- ggplot(data.plot) + geom_point(mapping = aes(x=data.plot$`x_0`, y = data.plot$y_0, colour = data.plot$protocol), alpha = 0.8, size = 0.8) + xlim(min( data.new[[j]]$`x_0`), max(data.new[[j]]$`x_0`)) + ylim(min(data.new[[j]]$`y_0`), max(data.new[[j]]$`y_0`)) + theme_bw()+ theme(legend.position = "none", axis.line=element_blank(),axis.text.x=element_blank(), axis.text.y=element_blank(),axis.ticks=element_blank(),axis.title.x=element_blank(),axis.title.y=element_blank())
 
   p2 <- ggplot(data.plot) + geom_point(mapping = aes(x=data.plot$`x_0.1`, y = data.plot$y_0.1, colour = data.plot$protocol), alpha = 0.8, size = 0.8)+ xlim(min( data.new[[j]]$`x_0.1`), max(data.new[[j]]$`x_0.1`)) + ylim(min(data.new[[j]]$y_0.1), max(data.new[[j]]$y_0.1))  + theme_bw()+ theme(legend.position = "none", axis.line=element_blank(),axis.text.x=element_blank(),            axis.text.y=element_blank(),axis.ticks=element_blank(),axis.title.x=element_blank(),axis.title.y=element_blank())
@@ -357,7 +336,7 @@ for (type in c("acinar", "activated_stellate","alpha","beta","delta","ductal","e
   abbbcccdddeeefffggg
   "
   p.save = wrap_plots(p.all, guides = 'collect', design = layoutplot)
-  ggsave(p.save, file = str_c("/home/kvergasova/conos_analysis/pancreatit_data/conos_new_all_cell_protocol_",names(data.new)[j], ".png"), width = 35, height = 7, units = "cm")
+  ggsave(p.save, file = str_c(path,"new_protocol",names(data.new)[j], ".png"), width = 35, height = 7, units = "cm")
   # wrap_plots(p.all, guides = 'collect', design = layoutplot)
   # dev.off()
   #ggarrange(row, p1,p2,p3,p4,p5,p6,  ncol = 7, nrow = 1, common.legend = TRUE, legend="bottom")
@@ -391,7 +370,7 @@ for (type in c("acinar", "activated_stellate","alpha","beta","delta","ductal","e
   bbbcccdddeeefffggg
   "
   p.save = wrap_plots(p.all, guides = 'collect', design = layoutplot)            
-  ggsave(p.save, file = str_c("/home/kvergasova/conos_analysis/pancreatit_data/conos_old_all_cell_protocol.png"), width = 35, height = 7, units = "cm")
+  ggsave(p.save, file = str_c(path, "conos_old_all_cell_protocol.png"), width = 35, height = 7, units = "cm")
  
   } 
   
@@ -410,7 +389,7 @@ for (type in c("acinar", "activated_stellate","alpha","beta","delta","ductal","e
    #data.plot <- data.new[[j]]
    # data.new <- fread("/home/kvergasova/conos_analysis/pancreatit_data/new_embedding_nneig_0.05.tsv")
    # data.plot <- data.new
-  data.plot <- left_join(data.plot, ann.tiny, by = "cell")
+  data.plot <- left_join(data.plot, annotation, by = "cell")
   p1 <- ggplot(data.plot) + geom_point(mapping = aes(x=data.plot$`x_0`, y = data.plot$y_0, colour = data.plot$cellType), alpha = 0.8, size = 0.8) + xlim(min( data.new[[j]]$`x_0`), max(data.new[[j]]$`x_0`)) + ylim(min(data.new[[j]]$`y_0`), max(data.new[[j]]$`y_0`)) +  theme(legend.position = "none", axis.line=element_blank(),axis.text.x=element_blank(), axis.text.y=element_blank(),axis.ticks=element_blank(),axis.title.x=element_blank(),axis.title.y=element_blank())+ theme_bw()
 
   p2 <- ggplot(data.plot) + geom_point(mapping = aes(x=data.plot$`x_0.1`, y = data.plot$y_0.1, colour = data.plot$cellType), alpha = 0.8, size = 0.8)+ xlim(min( data.new[[j]]$`x_0.1`), max(data.new[[j]]$`x_0.1`)) + ylim(min(data.new[[j]]$y_0.1), max(data.new[[j]]$y_0.1)) +  theme(legend.position = "none", axis.line=element_blank(),axis.text.x=element_blank(),            axis.text.y=element_blank(),axis.ticks=element_blank(),axis.title.x=element_blank(),axis.title.y=element_blank())+ theme_bw()
@@ -438,7 +417,7 @@ for (type in c("acinar", "activated_stellate","alpha","beta","delta","ductal","e
   abbbcccdddeeefffggg
   "
   p.save = wrap_plots(p.all, guides = 'collect', design = layoutplot)
-  ggsave(p.save, file = str_c("/home/kvergasova/conos_analysis/pancreatit_data/conos_new_all_cell_cellType_",names(data.new)[j], ".png"), width = 35, height = 7, units = "cm")
+  ggsave(p.save, file = str_c(path, "new_by_cell_type",names(data.new)[j], ".png"), width = 35, height = 7, units = "cm")
   # wrap_plots(p.all, guides = 'collect', design = layoutplot)
   # dev.off()
   #ggarrange(row, p1,p2,p3,p4,p5,p6,  ncol = 7, nrow = 1, common.legend = TRUE, legend="bottom")
@@ -474,7 +453,7 @@ for (type in c("acinar", "activated_stellate","alpha","beta","delta","ductal","e
   bbbcccdddeeefffggg
   "
   p.save = wrap_plots(p.all, guides = 'collect', design = layoutplot)            
-  ggsave(p.save, file = str_c("/home/kvergasova/conos_analysis/pancreatit_data/conos_old_all_cell_cellType.png"), width = 35, height = 7, units = "cm")
+  ggsave(p.save, file = str_c(path, "conos_old_all_cell_cellType.png"), width = 35, height = 7, units = "cm")
  
   } 
   
@@ -492,7 +471,7 @@ file.old <- list.files(path, pattern = glob2rx("*old_*rds"))
 #ann.tiny <- fread("/home/kvergasova/conos_analysis/annotation_tiny_data.tsv")
 #ann.tiny <- fread("/home/kvergasova/conos_analysis/mouse_brain/mouse_brain_tiny_annotation_table.tsv")
 #ann.tiny <- filter(ann, cell_name %in% rownames(con$embedding))
-ann.tiny <- ann.pl
+ann.tiny <- annotation
 #names(ann.tiny)[3] <- "cellType"
 #ann.tiny$cell <- ann.tiny$cell_name
 

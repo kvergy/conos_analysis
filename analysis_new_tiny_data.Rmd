@@ -1,0 +1,165 @@
+---
+title: "R Notebook"
+output: html_notebook
+---
+
+This is an [R Markdown](http://rmarkdown.rstudio.com) Notebook. When you execute code within the notebook, the results appear beneath the code. 
+
+Try executing this chunk by clicking the *Run* button within the chunk or by placing your cursor inside it and pressing *Ctrl+Shift+Enter*. 
+
+```{r}
+library(pagoda2)
+library(conos)
+library(tidyverse)
+library(magrittr)
+library(igraph)
+library( Seurat)
+library(profvis)
+library(ggpubr)
+```
+```{r}
+preProcessPagoda2 <- function(data){
+  cm <- data[, unique(colnames(data))]
+  #par(mfrow=c(1,2), mar = c(3.5,3.5,2.0,0.5), mgp = c(2,0.65,0), cex = 1.0)
+  #hist(log10(colSums(cm)+1), main='molecules per cell', col='cornsilk', xlab='log10(molecules per cell)')
+  #hist(log10(rowSums(cm)+1), main='molecules per gene', col='cornsilk', xlab='log10(molecules per gene])')
+  
+  
+  counts <- gene.vs.molecule.cell.filter(cm, min.cell.size=500)
+  
+  #hist(log10(rowSums(counts)+1), main='Molecules per gene', xlab='molecules (log10)', col='cornsilk')
+  #abline(v=1, lty=2, col=2)
+  counts <- counts[rowSums(counts)>=10, ]
+  #dim(counts)
+  rownames(counts) <- make.unique(rownames(counts))
+  r <- Pagoda2$new(counts,log.scale=TRUE, n.cores=2)
+  
+  r$adjustVariance(plot=TRUE, gam.k=10)
+  r$calculatePcaReduction(nPcs=50, n.odgenes=3e3)
+  r$makeKnnGraph(k=40, type='PCA', center=TRUE, distance='cosine')
+  r$getKnnClusters(method=infomap.community, type='PCA')
+  M <- 30
+  r$getEmbedding(type='PCA', embeddingType = 'largeVis', M=M, perplexity=30, gamma=1/M, alpha=1)
+  r$plotEmbedding(type='PCA', show.legend=FALSE, mark.clusters=TRUE, min.group.size=50, shuffle.colors=FALSE, mark.cluster.cex=1, alpha=0.1, main='clusters (largeVis)')
+  r$getEmbedding(type='PCA', embeddingType='tSNE', perplexity=50,verbose=FALSE)
+  r$plotEmbedding(type='PCA', embeddingType='tSNE', show.legend=FALSE, mark.clusters=TRUE, min.group.size=1, shuffle.colors=FALSE, mark.cluster.cex=1, alpha=0.1, main='clusters (tSNE)')
+  r$getKnnClusters(method=multilevel.community, type='PCA', name='multilevel')
+  
+  return(r)
+}
+```
+
+```{r}
+path.to.dir <- "/home/kvergasova/conos_analysis/10X/"
+matrix.list <- list()
+directories <- list.dirs(path.to.dir,full.names = FALSE, recursive = FALSE)
+#data <-Read10X(path)
+# for (dir in  directories){
+#     data <-Read10X(str_c(path.to.dir, dir))
+#     matrix.list <- append(matrix.list, data)
+# }
+# names(matrix.list) <- directories
+# any(duplicated(unlist(lapply(matrix.list,colnames))))  
+# unlist(lapply(matrix.list,colnames))
+# p <- unlist(lapply(matrix.list,colnames))[duplicated(unlist(lapply(matrix.list,colnames)))]
+# # unique(p)
+# 
+# dataRR <- do.call(cbind, matrix.list)
+dataRR <- Read10X(str_c(path.to.dir, directories[1]))[,1:1142]
+r1 <- preProcessPagoda2(dataRR)
+r1$getEmbedding(type='PCA', embeddingType='tSNE', perplexity=50,verbose=FALSE)
+r1$plotEmbedding(type='PCA', embeddingType='tSNE', show.legend=FALSE, mark.groups=TRUE, min.cluster.size=1, shuffle.colors=FALSE, font.size=3, alpha=0.3, title='clusters (tSNE)', plot.theme=theme_bw() + theme(plot.title = element_text(hjust = 0.5)))
+
+
+colnames(dataRR)[!colnames(dataRR) %in% ann.tiny1$cell]
+table(ann.tiny1[ann.tiny1$cell %in% colnames(dataRR),]$cellType)
+```
+
+
+```{r}
+path.to.dir <- "/home/kvergasova/conos_analysis/inDrop/"
+directories <- list.files(path.to.dir,full.names = F, recursive = FALSE)
+data <- read.csv(str_c(path.to.dir, directories[1]), row.names = 1)[,-c(2,3)]
+data <- t(data)
+# data1 <- read.csv(str_c(path.to.dir,  directories[2]), row.names = 1)[,-c(2,3)]
+# data1 <- t(data1)
+# data2 <- read.csv(str_c(path.to.dir,  directories[3]), row.names = 1)[,-c(2,3)]
+# data2 <- t(data2)
+# data3 <- read.csv(str_c(path.to.dir,  directories[4]), row.names = 1)[,-c(2,3)]
+# data3 <- t(data3)
+# data.full <- cbind(data, data1, data2, data3)
+
+#any(duplicated(colnames(data.full)))
+dataRR1 <- data[-1,1:937]
+
+class(dataRR1)<-"numeric"
+r2 <- preProcessPagoda2(dataRR1)
+r2$getEmbedding(type='PCA', embeddingType='tSNE', perplexity=50,verbose=FALSE)
+r2$plotEmbedding(type='PCA', embeddingType='tSNE', show.legend=FALSE, mark.groups=TRUE, min.cluster.size=1, shuffle.colors=FALSE, font.size=3, alpha=0.3, title='clusters (tSNE)', plot.theme=theme_bw() + theme(plot.title = element_text(hjust = 0.5)))
+
+```
+
+```{r}
+path.to.dir <- "/home/kvergasova/conos_analysis/Smart-seq2/"
+data.raw <- read.table(str_c(path.to.dir,  "pancreas_refseq_rpkms_counts_3514sc.txt"), sep = "\t")
+
+samples <- read.csv(str_c(path.to.dir,  "sample.txt"), sep = "\t", header = F)
+samples <- t(samples)
+#data <- data.raw[1:26179,c(1,3515:4514)]
+data.all <- data.raw[1:26179,c(1,3517:7030)]
+data <- data.all
+data <- data[-25455,]
+data <- data[!duplicated(data[,1]), ]
+rownames(data)<- data[,1]
+data <- data[, -c(1)]
+
+#colnames(data) <- samples[1:1000]
+colnames(data) <- samples
+
+any(duplicated(colnames(data)))
+dataRR2 <- as.matrix(data)
+design <- read_rds("/home/kvergasova/conos_analysis/design.rds")
+table(design$CellType[names(design$CellType) %in% colnames(dataRR2)])
+an.2 <- tibble(cell = names(design$CellType[names(design$CellType) %in% colnames(dataRR2)]), cell_type=design$CellType[names(design$CellType) %in% colnames(dataRR2)])
+dataRR2 <- dataRR2[, colnames(dataRR2) %in% an.2[an.2$cell_type != "not applicable",]$cell]
+
+
+an.plot <- tibble(cell=colnames(dataRR2))
+an.plot <- left_join(an.plot, an.2, by = "cell")
+an.pl <- setNames(an.plot$cell_type, an.plot$cell)
+
+class(dataRR2)<-"numeric"
+#r3 <- preProcessPagoda2(dataRR)
+cm1 <- dataRR2[, unique(colnames(dataRR2))]
+
+
+counts1 <- gene.vs.molecule.cell.filter(cm1, min.cell.size=0)
+counts1 <- cm1
+counts1 <- counts1[rowSums(counts1)>=10, ]
+counts1 <- counts1[, 1200:2000]
+rownames(counts1) <- make.unique(rownames(counts1))
+r3 <- Pagoda2$new(counts1,log.scale=TRUE, n.cores=2)
+
+r3$adjustVariance(plot=TRUE, gam.k=10)
+r3$calculatePcaReduction(nPcs=50, n.odgenes=3e3)
+r3$makeKnnGraph(k=40, type='PCA', center=TRUE, distance='cosine')
+r3$getKnnClusters(method=infomap.community, type='PCA')
+# M <- 30
+# r3$getEmbedding(type='PCA', embeddingType = 'largeVis', M=M, perplexity=30, gamma=1/M, alpha=1)
+# r3$plotEmbedding(type='PCA', show.legend=FALSE, mark.clusters=TRUE, min.group.size=50, shuffle.colors=FALSE, mark.cluster.cex=1, alpha=0.1, main='clusters (largeVis)')
+r3$getEmbedding(type='PCA', embeddingType='tSNE', perplexity=30,verbose=FALSE)
+r3$plotEmbedding(type='PCA', embeddingType='tSNE', show.legend=FALSE, min.group.size=1, shuffle.colors=FALSE, alpha=0.1, main='clusters (tSNE)')#, groups = an.pl,mark.groups=TRUE)
+r3$getKnnClusters(method=multilevel.community, type='PCA', name='multilevel')
+
+#r3$graphs
+```
+
+```{r}
+panel.tiny <- list("10X" = r1, "indrop" = r2, "smartseq" = r3)
+save(panel.tiny, file = "/home/kvergasova/conos_analysis/data_tiny_clear2.RData")
+saveRDS(panel.tiny, file = "/home/kvergasova/conos_analysis/data_tiny_clear2.rds")
+#cono <-conos::Conos$new(cono)
+# library(profvis)
+# profvis({cono.tiny <- Conos$new(panel.tiny)})
+```
+
