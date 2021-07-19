@@ -1,18 +1,20 @@
 ---
-title: "R Notebook"
-output: html_notebook
+title: "Mouse brain"
+output:
+  html_document:
+    df_print: paged
 ---
 
 
 #SPLiT-seq
-```{r}
+```{r, cache=FALSE, results=FALSE, warning=FALSE, comment=FALSE,message=FALSE, eval=FALSE}
 library(data.table)
 library(R.matlab)
 library(pagoda2)
 data1 <-  readMat("SPLiT/GSM3017261_150000_CNS_nuclei.mat")
 ```
-#annotation 
-```{r}
+##annotation 
+```{r, cache=FALSE, results=FALSE, warning=FALSE, comment=FALSE,message=FALSE, eval=FALSE}
 sample_type = str_remove(data1$sample.type, " ")
 unique(sample_type)
 
@@ -108,8 +110,8 @@ annotation_split <- tibble(old_cluster_assignment = ad_cluster_assignment, new_c
 fwrite(annotation1, "/home/kvergasova/conos_analysis/mouse_brain/annotation_split.tsv")
 fwrite(annotation_split, "/home/kvergasova/conos_analysis/mouse_brain/annotation_split_full.tsv")
 ```
-
-```{r}
+##data preparation
+```{r, cache=FALSE, results=FALSE, warning=FALSE, comment=FALSE,message=FALSE, eval=FALSE}
 #df1 <- adata_rosen[1:3000,]
 id1 <- runif(nrow(adata_rosen), min=0, max=1) > 0.97
 sum(id1)
@@ -155,14 +157,15 @@ r1$plotEmbedding(type='PCA', show.legend=FALSE, mark.clusters=TRUE, min.group.si
 r1$getKnnClusters(method=multilevel.community, type='PCA', name='multilevel')
 
 ```
+
 #10X Genomics
-```{r}
+```{r, cache=FALSE, results=FALSE, warning=FALSE, comment=FALSE,message=FALSE, eval=FALSE}
 library(loomR)
 lfile <- connect(filename = "l5_all.loom", mode = "r+")
 ```
 
-#annotation
-```{r}
+##annotation
+```{r, cache=FALSE, results=FALSE, warning=FALSE, comment=FALSE,message=FALSE, eval=FALSE}
 
 lfile[["col_attrs/Taxonomy_group"]][] %>% table()
 lfile[["col_attrs/Region"]][] %>% table()
@@ -247,8 +250,8 @@ annotation2 <- tibble(cell = cell,cell_type = cell_type2, region = region_new2_ 
 fwrite(annotation2, "/home/kvergasova/conos_analysis/mouse_brain/annotation_loom.tsv")
 ```
 
-
-```{r}
+##data preparation
+```{r, cache=FALSE, results=FALSE, warning=FALSE, comment=FALSE,message=FALSE, eval=FALSE}
 # генерирую случайный вектор T F 
 id <- runif(nrow(full.matrix), min=0, max=1) > 0.98
 sum(id)
@@ -284,7 +287,7 @@ r2$plotEmbedding(type='PCA', show.legend=FALSE, mark.clusters=TRUE, min.group.si
 r2$getKnnClusters(method=multilevel.community, type='PCA', name='multilevel')
 ```
 # Dropseq
-```{r}
+```{r, cache=FALSE, results=FALSE, warning=FALSE, comment=FALSE,message=FALSE, eval=FALSE}
 install.packages('~/DropSeq.util_2.0.tar.gz', repos=NULL)
 library(DropSeq.util)
 
@@ -335,8 +338,8 @@ dge.an <- read_rds("/home/kvergasova/conos_analysis/mouse_brain/Dropseq/annotati
 
 
 ```
-#annotation
-```{r}
+# annotation
+```{r, cache=FALSE, results=FALSE, warning=FALSE, comment=FALSE,message=FALSE, eval=FALSE}
 annotation.dge.all.mat$subcluster_1 <- lapply(as.character(annotation.dge.all.mat$subcluster), function(x) {
   if (!x %in% unique(dge.an$subcluster)){
     return(str_c(x, "-1"))}
@@ -383,8 +386,8 @@ fwrite(annotation3, "/home/kvergasova/conos_analysis/mouse_brain/annotation_drop
 ```
 
 
-
-```{r}
+## data preparation
+```{r, cache=FALSE, results=FALSE, warning=FALSE, comment=FALSE,message=FALSE, eval=FALSE}
 cm <- dge.all.mat1[, unique(colnames(dge.all.mat1))]
 par(mfrow=c(1,2), mar = c(3.5,3.5,2.0,0.5), mgp = c(2,0.65,0), cex = 1.0)
 hist(log10(colSums(cm)+1), main='molecules per cell', col='cornsilk', xlab='log10(molecules per cell)')
@@ -413,7 +416,7 @@ r3$getKnnClusters(method=multilevel.community, type='PCA', name='multilevel')
 ```
 
 # TM
-```{r}
+```{r, cache=FALSE, results=FALSE, warning=FALSE, comment=FALSE,message=FALSE, eval=FALSE}
 my <- fread("TM/FACS/Brain_Myeloid-counts.csv")
 no.my <- fread("TM/FACS/Brain_Non-Myeloid-counts.csv")
 
@@ -423,7 +426,7 @@ ann.tm <- fread("TM/annotations_FACS.csv")
 ```
 
 #annotation and cell selection
-```{r}
+```{r, cache=FALSE, results=FALSE, warning=FALSE, comment=FALSE,message=FALSE, eval=FALSE}
 sum(ann.tm$cell %in% colnames(tm))
 #tm <-as(tm, "sparseMatrix")  
 #tm <- tm[ which( colnames(tm ) %in% ann.tm$cell)]
@@ -451,8 +454,8 @@ fwrite(ann.tm, "/home/kvergasova/conos_analysis/mouse_brain/annotation_TM_full.t
 fwrite(annotation4, "/home/kvergasova/conos_analysis/mouse_brain/annotation_TM.tsv")
 ```
 
-
-```{r}
+## data preparation
+```{r, cache=FALSE, results=FALSE, warning=FALSE, comment=FALSE,message=FALSE, eval=FALSE}
 id <- runif(7856, min=0, max=1) > 0.6
 
 tm.tiny <- tm2[,id]
@@ -466,7 +469,7 @@ class(tm.tiny) <- "numeric"
 ```
 
 
-```{r}
+```{r, cache=FALSE, results=FALSE, warning=FALSE, comment=FALSE,message=FALSE, eval=FALSE}
 cm <- tm.tiny[, unique(colnames(tm.tiny))]
 par(mfrow=c(1,2), mar = c(3.5,3.5,2.0,0.5), mgp = c(2,0.65,0), cex = 1.0)
 hist(log10(colSums(cm)+1), main='molecules per cell', col='cornsilk', xlab='log10(molecules per cell)')
@@ -493,54 +496,17 @@ r4$plotEmbedding(type='PCA', show.legend=FALSE, mark.clusters=TRUE, min.group.si
 r4$getKnnClusters(method=multilevel.community, type='PCA', name='multilevel')
 ```
 
-```{r}
+## make conos object
+```{r, cache=FALSE, results=FALSE, warning=FALSE, comment=FALSE,message=FALSE, eval=FALSE}
 library(conos)
 panel <- list("SPLiT-seq" = r1, "10Xs" = r2, "Dropseq" = r3, "Tabula Muris" = r4)
 save(panel, file = "/home/kvergasova/conos_analysis/mouse_brain/mouse_brain_tiny.RData")
-
-#load("mouse_brain_tiny.RData")
 saveRDS(panel, file =  "/home/kvergasova/conos_analysis/mouse_brain/mouse_brain_tiny.rds")
 conB <- Conos$new(panel, n.cores=4)
 ```
 
-```{r}
-findCells <- function(sample, k = 0.05){
-  #k <- dim(sample$reductions$PCA)[1]*per
-  n.cells <-  round(dim(sample$reductions$PCA)[1]*k)
-  mat <- conos:::getNeighborMatrix(p1 = sample$reductions$PCA, p2=NULL, k = n.cells, matching = "NN")
-  colnames(mat) <- rownames(sample$reductions$PCA)
-  rownames(mat) <- rownames(sample$reductions$PCA)
-  num.elements <- colSums(mat!=0)
-  cell.distance <- mat@x
-  list.cell <- list()
-  j <- 1
-  for (i in 1:dim(mat)[1]){
-    sep <-num.elements[i]  
-    cells <- setNames(cell.distance[j:(sep+j-1)], colnames(mat)[mat@i[j:(sep+j-1)]+1])
-    cells <- cells[order(cells, decreasing = T)[1:n.cells]]
-    list.cell <- c(list.cell, list(cells))
-    j <- j + sep
-  }
-  names(list.cell) <- colnames(mat)
-  #sample$misc <- list.cell
-  return(list.cell)
-}
-
-conB$misc <- NULL
-conB$buildGraph(k=50, k1 = 100, k.self=5, space='PCA', ncomps=30, n.odgenes=2000, matching.method='mNN', metric='angular', score.component.variance=TRUE, verbose=TRUE, alignment.strength = 1)
-conB$findCommunities(method=leiden.community, resolution=1)
-conB$embedGraph()
-
-
-#pl.brain.old.sam[[j]]<-conB$plotGraph(group = ann.sim , mark.groups=FALSE, alpha=0.1, show.legend=TRUE)
-conB$plotGraph(color.by='sample',mark.groups=FALSE, alpha=0.1, show.legend=TRUE)
-
-
-
-
-```
-
-```{r}
+## make joint annotation
+```{r, cache=FALSE, results=FALSE, warning=FALSE, comment=FALSE,message=FALSE, eval=FALSE}
 
 annot_tm <- fread("/home/kvergasova/conos_analysis/mouse_brain/annotation_TM.tsv")
 annot_tm$protocol <- rep("tabula_muris", times = nrow(annot_tm))
@@ -550,7 +516,7 @@ annot_loom <- fread("/home/kvergasova/conos_analysis/mouse_brain/annotation_loom
 annot_loom$protocol <- rep("10X", times = nrow(annot_loom))
 annot_split <- fread( "/home/kvergasova/conos_analysis/mouse_brain/annotation_split.tsv")
 annot_split$protocol <- rep("Split_seq", times = nrow(annot_split))
-#load("mouse_brain_tiny.RData")
+
 panel <- readRDS("/home/kvergasova/conos_analysis/mouse_brain/mouse_brain_tiny.rds")
 conB <- Conos$new(panel, n.cores=4)
 conB$misc <- NULL
@@ -568,145 +534,4 @@ fwrite(annotation_all,  "/home/kvergasova/conos_analysis/mouse_brain/mouse_brain
 ```
 
 
-
-```{r}
-pl.brain.old.sam <- list()
-pl.brain.old.group <- list()
-j <- 1
-path <- "/home/kvergasova/conos_analysis/mouse_brain/"
-embeg.brain.old <- tibble(cell=rownames(conB$embeddings$largeVis))
- for (i in c(0, 0.1, 0.3, 0.5, 0.8, 1)){
-  conB$misc <- NULL    
-  conB$buildGraph(k=50, k1 = 100, k.self=5, space='PCA', ncomps=30, n.odgenes=2000, matching.method='mNN', metric='angular', score.component.variance=TRUE, verbose=TRUE,  alignment.strength = i)
-  
-  conB$findCommunities(method=leiden.community, resolution=1)
-  conB$embedGraph()
-  #cono.tiny$plotGraph(alpha=0.1)
-  df <- tibble(conB$embeddings$largeVis[,1], conB$embeddings$largeVis[,2])
-  colnames(df) <- c(str_c("x_", i), str_c("y_", i))
-  embeg.brain.old <- cbind(embeg.brain.old, df)
-  #ann.sim <- setNames(sim2$Group, sim2$Cell)
-  #pl.brain.old.sam[[j]]<-conB$plotGraph(group = ann.sim , mark.groups=FALSE, alpha=0.1, show.legend=TRUE)
-  pl.brain.old.sam[[j]]<- conB$plotGraph(color.by='sample',mark.groups=FALSE, alpha=0.1, show.legend=TRUE)
-  #pl.brain.old.sam[[j]] <- conB$plotGraph(color.by='sample',mark.groups=FALSE, alpha=0.1, show.legend=TRUE)
-  pl.brain.old.group[[j]] <- conB$plotGraph(group = ann_plot,mark.groups=FALSE, alpha=0.1, show.legend=TRUE)
-  j <- j +1
-  saveRDS(conB$graph, str_c(path, "mouse_brain_old_alstr_", i, ".rds"))
-  write_graph(conB$graph, str_c(path,"mouse_brain_old_alstr_", i, ".txt"), "edgelist")
- }
-
-fwrite(embeg.brain.old, "/home/kvergasova/conos_analysis/mouse_brain/embedding_mouse_brain_old.tsv")
-
-
-pl.brain.sam <- list()
-pl.brain.group <- list()
-embeg.brain <- list()
-for (n.neig in c(0.05, 0.1, 0.3, 0.5)){
-  #j <- 1
-  
-  embeg.brain.df <- tibble(cell=rownames(conB$embeddings$largeVis))
-  conB$misc$neighborfilter <- lapply(conB$samples, function(x) findCells(x, n.neig))
-  conB$misc$add.cells <- FALSE
-  j <- 1
-  for (i in c(0, 0.1, 0.3, 0.5, 0.8, 1)){
-  conB$buildGraph(k=50, k1 = 100, k.self=5, space='PCA', ncomps=30, n.odgenes=2000, matching.method='mNN', metric='angular', score.component.variance=TRUE, verbose=TRUE,  alignment.strength = i)
-  
-  conB$findCommunities(method=leiden.community, resolution=1)
-  conB$embedGraph()
-  #cono.tiny$plotGraph(alpha=0.1)
-  df <- tibble(conB$embeddings$largeVis[,1], conB$embeddings$largeVis[,2])
-  colnames(df) <- c(str_c("x_", i), str_c("y_", i))
-  embeg.brain.df <- cbind(embeg.brain.df, df)
-  #ann.sim <- setNames(sim2$Group, sim2$Cell)
-  #pl.sim.group[[str_c("n.neig_", n.neig)]][[j]]<-conS$plotGraph(group = ann.sim , mark.groups=FALSE, alpha=0.1, show.legend=TRUE)
-  pl.brain.sam[[str_c("n.neig_", n.neig)]][[j]] <- conB$plotGraph(color.by='sample',mark.groups=FALSE, alpha=0.1, show.legend=TRUE)
-  pl.brain.group[[str_c("n.neig_", n.neig)]][[j]]  <-  conB$plotGraph(group = ann_plot,mark.groups=FALSE, alpha=0.1, show.legend=TRUE)
-  saveRDS(conB$graph, str_c(path, "mouse_brain_nneig_",n.neig, "_alstr_", i, ".rds"))
-  write_graph(conB$graph, str_c(path, "mouse_brain_nneig_",n.neig, "_alstr_", i, ".txt"), "edgelist")
-  j <- j +1
-  }
-  embeg.brain[[str_c("n.neig_", n.neig)]] <- embeg.brain.df
-}
-      
- saveRDS(embeg.brain, str_c(path, "mouse_brain_new.rds"))
-
-```
-
-```{r}
-ggarrange(pl.brain.old.group[[1]]+  theme(legend.position = "none"), pl.brain.old.group[[2]]+  theme(legend.position = "none"), pl.brain.old.group[[3]]+  theme(legend.position = "none"), pl.brain.old.group[[4]]+  theme(legend.position = "none"), pl.brain.old.group[[5]]+  theme(legend.position = "none"),pl.brain.old.group[[6]]+  theme(legend.position = "none"),
-        pl.brain.group[[1]][[1]] + theme(legend.position = "none"),
-        pl.brain.group[[1]][[2]] + theme(legend.position = "none"),
-        pl.brain.group[[1]][[3]] + theme(legend.position = "none"),
-        pl.brain.group[[1]][[4]] + theme(legend.position = "none"),
-        pl.brain.group[[1]][[5]] + theme(legend.position = "none"),
-        pl.brain.group[[1]][[6]] + theme(legend.position = "none"),
-        pl.brain.group[[2]][[1]] + theme(legend.position = "none"),
-        pl.brain.group[[2]][[2]] + theme(legend.position = "none"),
-        pl.brain.group[[2]][[3]] + theme(legend.position = "none"),
-        pl.brain.group[[2]][[4]] + theme(legend.position = "none"),
-        pl.brain.group[[2]][[5]] + theme(legend.position = "none"),
-        pl.brain.group[[2]][[6]] + theme(legend.position = "none"),
-        pl.brain.group[[3]][[1]] + theme(legend.position = "none"),
-        pl.brain.group[[3]][[2]] + theme(legend.position = "none"),
-        pl.brain.group[[3]][[3]] + theme(legend.position = "none"),
-        pl.brain.group[[3]][[4]] + theme(legend.position = "none"),
-        pl.brain.group[[3]][[5]] + theme(legend.position = "none"),
-        pl.brain.group[[3]][[6]] + theme(legend.position = "none"),
-        pl.brain.group[[4]][[1]] + theme(legend.position = "none"),
-        pl.brain.group[[4]][[2]] + theme(legend.position = "none"),
-        pl.brain.group[[4]][[3]] + theme(legend.position = "none"),
-        pl.brain.group[[4]][[4]] + theme(legend.position = "none"),
-        pl.brain.group[[4]][[5]] + theme(legend.position = "none"),
-        pl.brain.group[[4]][[6]] + theme(legend.position = "none"),
-          ncol = 6, nrow = 5)
-
-
-
-ggarrange(pl.brain.old.sam[[1]]+  theme(legend.position = "none"), pl.brain.old.sam[[2]]+  theme(legend.position = "none"), pl.brain.old.sam[[3]]+  theme(legend.position = "none"), pl.brain.old.sam[[4]]+  theme(legend.position = "none"), pl.brain.old.sam[[5]]+  theme(legend.position = "none"),pl.brain.old.sam[[6]]+  theme(legend.position = "none"),
-        pl.brain.sam[[1]][[1]] + theme(legend.position = "none"),
-        pl.brain.sam[[1]][[2]] + theme(legend.position = "none"),
-        pl.brain.sam[[1]][[3]] + theme(legend.position = "none"),
-        pl.brain.sam[[1]][[4]] + theme(legend.position = "none"),
-        pl.brain.sam[[1]][[5]] + theme(legend.position = "none"),
-        pl.brain.sam[[1]][[6]] + theme(legend.position = "none"),
-        pl.brain.sam[[2]][[1]] + theme(legend.position = "none"),
-        pl.brain.sam[[2]][[2]] + theme(legend.position = "none"),
-        pl.brain.sam[[2]][[3]] + theme(legend.position = "none"),
-        pl.brain.sam[[2]][[4]] + theme(legend.position = "none"),
-        pl.brain.sam[[2]][[5]] + theme(legend.position = "none"),
-        pl.brain.sam[[2]][[6]] + theme(legend.position = "none"),
-        pl.brain.sam[[3]][[1]] + theme(legend.position = "none"),
-        pl.brain.sam[[3]][[2]] + theme(legend.position = "none"),
-        pl.brain.sam[[3]][[3]] + theme(legend.position = "none"),
-        pl.brain.sam[[3]][[4]] + theme(legend.position = "none"),
-        pl.brain.sam[[3]][[5]] + theme(legend.position = "none"),
-        pl.brain.sam[[3]][[6]] + theme(legend.position = "none"),
-        pl.brain.sam[[4]][[1]] + theme(legend.position = "none"),
-        pl.brain.sam[[4]][[2]] + theme(legend.position = "none"),
-        pl.brain.sam[[4]][[3]] + theme(legend.position = "none"),
-        pl.brain.sam[[4]][[4]] + theme(legend.position = "none"),
-        pl.brain.sam[[4]][[5]] + theme(legend.position = "none"),
-        pl.brain.sam[[4]][[6]] + theme(legend.position = "none"),
-          ncol = 6, nrow = 5)
-```
-
-```{r}
-conB$misc$neighborfilter <- lapply(conB$samples, function(x) findCells(x, n.neig))
-conB$misc$neighborfilter <-NULL
-conB$misc$add.cells <- TRUE
-conB$misc$add.cells.times <-4
-conB$buildGraph(k=50, k1 = 100, k.self=5, space='PCA', ncomps=30, n.odgenes=2000, matching.method='mNN', metric='angular', score.component.variance=TRUE, verbose=TRUE,  alignment.strength = 0)
-  
-conB$findCommunities(method=leiden.community, resolution=1)
-conB$embedGraph()
-conB$plotGraph(color.by='sample',mark.groups=FALSE, alpha=0.4, show.legend=TRUE)
-conB$plotGraph(groups = cells,mark.groups=FALSE, alpha=0.1, show.legend=TRUE)
-cells.names <- rownames(conB$embedding)
-cells <- rep("no info", length.out = length(cells.names))
-cells[cells.names %in% conB$misc$cells.zero[[1]]] = "cells with zero neigh"
-cells[cells.names %in% conB$misc$cells.add.to.zero[[1]]] = "cells add to zero cells"
-cells[cells.names %in% conB$misc$cells.zero[[4]]] = "cells with neigh with no neigh"
-names(cells) <- cells.names
-
-```
 

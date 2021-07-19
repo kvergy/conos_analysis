@@ -1,509 +1,165 @@
 ---
-title: "R Notebook"
-output: html_notebook
+title: "Conos analysis of pancreatic datasets"
+output:
+  html_document:
+    df_print: paged
 ---
 
-```{r}
+```{r,warning=FALSE, message=FALSE}
 library(pagoda2)
 library(conos)
 library(tidyverse)
 library(magrittr)
 library(igraph)
 library(ggpubr)
+library(data.table)
+library(reshape2)
+library(gplots)
+library(RColorBrewer)
 ```
-#загружаем панель и аннотацию
-```{r}
-pan.tiny <- read_rds(file = "/home/kvergasova/conos_analysis/simulations/panel_sim2.rds")
-#pan.tiny <- readRDS(file = "/home/kvergasova/conos_analysis/data_tiny.rds")
-#con <- Conos$new(pan.tiny)
-#pan.b <- readRDS(file = "data_big.rds")
-# pan.b <- readRDS(file = "data_big.rds")
+
+## load data
+```{r,warning=FALSE, message=FALSE}
+pan.tiny <- readRDS(file = "/home/kvergasova/conos_analysis/data_tiny.rds")
 con <- Conos$new(pan.tiny)
-
-# conos_old <- readRDS("/home/kvergasova/conos_analysis/conos_old.rds")
-# dim(conos_old$embedding)
-#saveRDS(panel.tiny, "/home/kvergasova/conos_analysis/data_tiny_clear.rds")
+path <- "/home/kvergasova/conos_analysis/conos_analysis_pancreatic/"
+annotation <- fread("/home/kvergasova/conos_analysis/pancreatic_annotation.tsv")
+annotation <- annotation[!duplicated(annotation$cell_name),]
+annotation$cell <- annotation$cell_name
 ```
-
-#функция ищет соседей
-```{r}
-findCells <- function(sample, k = 0.05){
-  #k <- dim(sample$reductions$PCA)[1]*per
-  n.cells <-  round(dim(sample$reductions$PCA)[1]*k)
-  mat <- conos:::getNeighborMatrix(p1 = sample$reductions$PCA, p2=NULL, k = n.cells, matching = "NN")
-  colnames(mat) <- rownames(sample$reductions$PCA)
-  rownames(mat) <- rownames(sample$reductions$PCA)
-  num.elements <- colSums(mat!=0)
-  cell.distance <- mat@x
-  list.cell <- list()
-  j <- 1
-  for (i in 1:dim(mat)[1]){
-    sep <-num.elements[i]  
-    cells <- setNames(cell.distance[j:(sep+j-1)], colnames(mat)[mat@i[j:(sep+j-1)]+1])
-    cells <- cells[order(cells, decreasing = T)[1:n.cells]]
-    list.cell <- c(list.cell, list(cells))
-    j <- j + sep
+## functions
+```{r,warning=FALSE, message=FALSE}
+calculateEntropy <- function(con, annotation=NULL){
+  
+  if (is.null(annotation)){
+    groups <- conos:::parseCellGroups(con, NULL, NULL)  
+  }else{
+   groups <- setNames(annotation$cell_type, annotation$cell) 
   }
-  names(list.cell) <- colnames(mat)
-  #sample$misc <- list.cell
-  return(list.cell)
+  
+  sample.factor <- con$getDatasetPerCell()
+  xt <- table(sample.factor[match(names(groups),names(sample.factor))],groups)
+  xt <- xt[rowSums(xt)>0,]; xt <- xt[,colSums(xt)>0]
+  n.samples <- nrow(xt)
+  ne <- 1-apply(xt, 2, entropy::KL.empirical, y2=rowSums(xt), unit=c('log2')) / log2(n.samples)
+  return(ne)
 }
-```
 
-#сохраняем граф и эмбэдинг в цикле для различных параметров силы выравнивания и количества разрешенных соседей
-```{r}
-
-#path <- "/home/kvergasova/conos_analysis/pancreatic_clear_data2/"
-path <- "/home/kvergasova/conos_analysis/simulations/"
-#graphEmbed <- function(con, path, ncell){
-
-embedding.old <- tibble(.rows = ncell)
-p.conos.old <- list()
-j <- 1
-for (i in c(0, 0.1, 0.3, 0.5, 0.8, 1)){
-    con$misc <- NULL
-    con$buildGraph(k=50, k1 = 100, k.self=5, space='PCA', ncomps=30, n.odgenes=2000, matching.method='mNN', metric='angular', score.component.variance=TRUE, verbose=TRUE,  alignment.strength = i)
-    con$findCommunities(method=leiden.community, resolution=1)
-    con$embedGraph()
-    p.conos.old[[j]] <- con$plotGraph(color.by='sample', mark.groups=FALSE, alpha=0.1, show.legend=TRUE)
-    j <- j + 1
-    add.em <- tibble(x=unname(con$embeddings$largeVis[,1]), y=unname(con$embeddings$largeVis[,2]))
-    colnames(add.em) <- c(str_c("x_", i),str_c("y_", i))
-    embedding.old <- cbind(embedding.old, add.em)
-    saveRDS(con$graph, str_c(path, "old_alstr_", i, ".rds"))
-    write_graph(con$graph, str_c(path, "old_alstr_", i, ".txt"), "edgelist")
-    
-  }
-  
-  embedding.old$cell <- rownames(con$embeddings$largeVis)
-  fwrite(embedding.old, str_c(path, "old_embedding.tsv"))
-  
+getEmbedingConos <- function(path, con, n.neig=NULL, annotation=NULL){
+  ncell <- sum(sapply(con$samples, function(x) nrow(x$counts)))
+  embedding <- tibble(.rows = ncell)
+  plots <- list()
+  j <- 1
+  entropy.data <- tibble(.rows = 6)
+  for (i in c(0, 0.1, 0.3, 0.5, 0.8, 1)){
+      #con$misc <- NULL
+      con$buildGraph(k=50, k1 = 100, k.self=5, space='PCA', ncomps=30, n.odgenes=2000, matching.method='mNN', metric='angular', score.component.variance=TRUE, verbose=TRUE,  alignment.strength = i, filt.neighbors = n.neig)
+      con$findCommunities(method=leiden.community, resolution=1)
+      con$embedGraph()
+      plots[[j]] <- con$plotGraph(color.by='sample', mark.groups=FALSE, alpha=0.5, show.legend=TRUE)
+      add.em <- tibble(x=unname(con$embeddings$largeVis[,1]), y=unname(con$embeddings$largeVis[,2]))
+      colnames(add.em) <- c(str_c("x_", i),str_c("y_", i))
+      embedding <- cbind(embedding, add.em)
+      version <- ifelse(is.null(n.neig), "old", str_c("new_", n.neig))
+      saveRDS(con$graph, str_c(path, version, "_alstr_", i, ".rds"))
+      write_graph(con$graph, str_c(path, version, "_alstr_", i, ".txt"), "edgelist")
+      calE <- calculateEntropy(con, annotation=NULL)
+      ent <- tibble(ent = calE, cluster = names(calE))
+      ent$alignment_str <- i
+      entropy.data <- rbind(entropy.data, ent)
+      j <- j + 1
+    }
+  embedding$cell <- rownames(con$embeddings$largeVis)
+  fwrite(embedding, str_c(path, version, "_embedding.tsv"))
+  return(list(plots=plots, emb=embedding, entropy = entropy.data))
+}
+getEmbedingNeighborsConos <- function(path, con, annotaion=NULL){
   pl.list <- list()
   g<-1
   embedding <- list()
-  j <- 1
-  for (n.neig in c(0.05, 0.1, 0.3, 0.5)){
-     pl <- list()
-     j <- 1
-    con$misc$neighborfilter <- lapply(con$samples, function(x) findCells(x, n.neig))
-    con$misc$add.cells <- FALSE
-    embed.df <- tibble(cell=rownames(con$embeddings$largeVis))
-  for (i in c(0, 0.1, 0.3, 0.5, 0.8, 1)){
-      con$buildGraph(k=50, k1 = 100, k.self=5, space='PCA', ncomps=30, n.odgenes=2000, matching.method='mNN', metric='angular', score.component.variance=TRUE, verbose=TRUE,  alignment.strength = i)
-      con$findCommunities(method=leiden.community, resolution=1)
-      con$embedGraph()
-     
-      #p.conos[[str_c("n.neig_", n.neig)]][[m]] <- con$plotGraph(color.by='sample', mark.groups=FALSE, alpha=0.1, show.legend=TRUE)
-      add.em <- tibble(x=unname(con$embeddings$largeVis[,1]), y=unname(con$embeddings$largeVis[,2]))
-      colnames(add.em) <- c(str_c("x_", i),str_c("y_", i))
-      embed.df<- cbind(embed.df, add.em)
-      pl[[j]] <- con$plotGraph(color.by='sample', mark.groups=FALSE, alpha=0.1, show.legend=TRUE)
-      j <- j + 1
-      saveRDS(con$graph, str_c(path, "nneig_",n.neig, "_alstr_", i, ".rds"))
-      write_graph(con$graph, str_c(path, "nneig_",n.neig, "_alstr_", i, ".txt"), "edgelist")
-    }
-   embedding[[g]] <- embed.df
-   fwrite(embed.df, str_c(path, "new_embedding_nneig_",n.neig,".tsv"))
-   pl.list[[g]] <- pl
+  entropy.data <- tibble(.rows = 3)
+  data <- tibble(.rows = sum(sapply(con$samples, function(x) nrow(x$counts)))*12)
+  for (n.neig in c(0, 0.05, 0.1, 0.3, 0.5)){
+   if (n.neig==0){
+     res <- getEmbedingConos(path, con, n.neig = NULL, annotation)
+   }else{
+     res <- getEmbedingConos(path, con, n.neig, annotation)
+   }  
+   embedding[[g]] <- res$emb
+   pl.list[[g]] <- res$plots
+   data.emb <- pivot_longer(embedding[[g]], !cell, names_to = c('coord_type','alignment_str'), values_to = "coord", names_pattern = "(.)_?(.*)")
+   data.emb$neig <- n.neig
+   data <- rbind(data, data.emb)
+   ent <- res$entropy
+   ent$neig <- n.neig
+   entropy.data <- rbind(entropy.data, ent)
+   #fwrite(embed.df, str_c(path, "new_embedding_nneig_",n.neig,".tsv"))
    g <- g+1
-   
   }
-#   return(list(embedding.new = embedding, embedding.old = embedding.old))
-#}
-
-
-all.result <- graphEmbed(con, path, 3277)
-
-
-
-
-
-
-```
-#annotation
-```{r}
-# design <- read_rds("/home/kvergasova/conos_analysis/design.rds")
-# annotation_clean <- tibble(cell = rownames(con$embedding))
-# ann <- tibble(cell = names(design$Protocol), protocol = unname(design$Protocol), cell_type = unname(design$CellType))
-# 
-# all(rownames(con$embedding) %in% ann$cell_name)
-# 
-# ann$cell_name <- str_split_fixed(ann$cell, "_GSM", 2)[,1]
-# fwrite(ann,"/home/kvergasova/conos_analysis/pancreatic_annotation.tsv")
-
-annotation <- fread(str_c(path, "annotation_sim2.tsv"))
-ann.pl <- filter(annotation, cell %in% rownames(con$embedding) )
-```
-```{r}
-ggarrange(p.conos.old[[1]]+  theme(legend.position = "none"), p.conos.old[[2]]+  theme(legend.position = "none"), p.conos.old[[3]]+  theme(legend.position = "none"), p.conos.old[[4]]+  theme(legend.position = "none"), p.conos.old[[5]]+  theme(legend.position = "none"),p.conos.old[[6]]+  theme(legend.position = "none"),
-        pl.list[[1]][[1]] + theme(legend.position = "none"),
-        pl.list[[1]][[2]] + theme(legend.position = "none"),
-        pl.list[[1]][[3]] + theme(legend.position = "none"),
-        pl.list[[1]][[4]] + theme(legend.position = "none"),
-        pl.list[[1]][[5]] + theme(legend.position = "none"),
-        pl.list[[1]][[6]] + theme(legend.position = "none"),
-        pl.list[[2]][[1]] + theme(legend.position = "none"),
-        pl.list[[2]][[2]] + theme(legend.position = "none"),
-        pl.list[[2]][[3]] + theme(legend.position = "none"),
-        pl.list[[2]][[4]] + theme(legend.position = "none"),
-        pl.list[[2]][[5]] + theme(legend.position = "none"),
-        pl.list[[2]][[6]] + theme(legend.position = "none"),
-        pl.list[[3]][[1]] + theme(legend.position = "none"),
-        pl.list[[3]][[2]] + theme(legend.position = "none"),
-        pl.list[[3]][[3]] + theme(legend.position = "none"),
-        pl.list[[3]][[4]] + theme(legend.position = "none"),
-        pl.list[[3]][[5]] + theme(legend.position = "none"),
-        pl.list[[3]][[6]] + theme(legend.position = "none"),
-        pl.list[[4]][[1]] + theme(legend.position = "none"),
-        pl.list[[4]][[2]] + theme(legend.position = "none"),
-        pl.list[[4]][[3]] + theme(legend.position = "none"),
-        pl.list[[4]][[4]] + theme(legend.position = "none"),
-        pl.list[[4]][[5]] + theme(legend.position = "none"),
-        pl.list[[4]][[6]] + theme(legend.position = "none"),
-          ncol = 6, nrow = 5)
-```
-
-
-
-# строим графики гриды с раскраской по батчам
-```{r}
-# path <- "/home/kvergasova/conos_analysis/pancreatit_data/"
-# 
-# 
-# ggplot(embed.df) + geom_point(aes(x = embed.df$x_1, y = embed.df$y_1, color = embed.df$ann, alpha=0.4))
-
-```
-
-
-
-# строим графики гриды по типам клеток и по батчам 2 строчки батч и клетки
-```{r}
-
-```
-
-# строим графики гриды по типам клеток по всем  al.str для какого-то n.neigh
-```{r, fig.width=25, fig.height=7}
-#path <- "/home/kvergasova/conos_analysis/pancreatit_data/"
-#path <- "/home/kvergasova/conos_analysis/pancreatic_clear_data2/"
-# data.new <- list()
-# ann.tiny <- fread("/home/kvergasova/conos_analysis/annotation_tiny_data.tsv")
-# annotation <- setNames(ann.tiny$cellType, ann.tiny$cell)
-# table(ann.tiny$cellType)[table(ann.tiny$cellType) > 40]
-annotation <- fread("/home/kvergasova/conos_analysis/simulations/annotation_sim2.tsv")
-annotation
-# annotation <- setNames(ann.tiny$cellType, ann.tiny$cell)
-
-library(patchwork)
-```
-
-
-```{r, fig.width=25, fig.height=7}
-for (file in list.files(path, pattern = glob2rx("new*tsv"))){
-  name <- str_remove(str_remove(file, "new_embedding_"), ".tsv")
-  data.new[[name]] <- fread(str_c(path,file))
+  fwrite(entropy.data, str_c(path, "entropy_data_pancreatic.tsv"))
+  fwrite(data, str_c(path, "full_data_pancreatic.tsv"))
+  return(list(plots=pl.list,emb=embedding, data=data, ent=entropy.data))
 }
 
-data.old <-  fread(list.files(path, pattern = glob2rx("old*tsv"), full.names = T))
-#p.all <- list()
-#data.new[['old']] <- data.old
- 
-j=1
-for (type in c("acinar", "activated_stellate","alpha","beta","delta","ductal","endothelial", "gamma")){
- # text <- str_c("conos new type: ", type)
-  
-  # Create a text grob
- # tgrob <- text_grob(text,size = 11)
-  # Draw the text
-  cell_sub_type <- ann.tiny[ann.tiny$cellType == type,]$cell
-    
- for (j in 1:length(data.new)){
-  # text <- str_c("conos new type: ", type, "  with ", names(data.new)[j])
-  #
-  # # Create a text grob
-  # tgrob <- text_grob(text,size = 11)
-  data.plot <- data.new[[j]][data.new[[j]]$cell %in% cell_sub_type,]
+```
 
-  p1 <- ggplot(data.plot) + geom_point(mapping = aes(x=data.plot$`x_0`, y = data.plot$y_0), colour = "red", alpha = 0.8, size = 0.8) + xlim(min( data.new[[j]]$`x_0`), max(data.new[[j]]$`x_0`)) + ylim(min(data.new[[j]]$`y_0`), max(data.new[[j]]$`y_0`)) +  theme(legend.position = "none", axis.line=element_blank(),axis.text.x=element_blank(), axis.text.y=element_blank(),axis.ticks=element_blank(),axis.title.x=element_blank(),axis.title.y=element_blank())
+## run conos and save data
+```{r, cache=FALSE, results=FALSE, warning=FALSE, comment=FALSE,message=FALSE, eval=FALSE}
+conos.res <- getEmbedingNeighborsConos(path, con, annotation)
+```
 
-  p2 <- ggplot(data.plot) + geom_point(mapping = aes(x=data.plot$`x_0.1`, y = data.plot$y_0.1), colour = "red", alpha = 0.8, size = 0.8)+ xlim(min( data.new[[j]]$`x_0.1`), max(data.new[[j]]$`x_0.1`)) + ylim(min(data.new[[j]]$y_0.1), max(data.new[[j]]$y_0.1)) +  theme(legend.position = "none", axis.line=element_blank(),axis.text.x=element_blank(),            axis.text.y=element_blank(),axis.ticks=element_blank(),axis.title.x=element_blank(),axis.title.y=element_blank())
-
-  p3 <- ggplot(data.plot) + geom_point(mapping = aes(x=data.plot$x_0.3, y = data.plot$y_0.3), colour = "red", alpha = 0.8, size = 0.8)+ xlim(min( data.new[[j]]$x_0.3), max(data.new[[j]]$x_0.3)) + ylim(min(data.new[[j]]$y_0.3), max(data.new[[j]]$y_0.3)) +  theme(legend.position = "none", axis.line=element_blank(),axis.text.x=element_blank(),            axis.text.y=element_blank(),axis.ticks=element_blank(),axis.title.x=element_blank(),axis.title.y=element_blank())
-
-  p4 <- ggplot(data.plot) + geom_point(mapping = aes(x=data.plot$x_0.5, y = data.plot$y_0.5), colour = "red", alpha = 0.8, size = 0.8) + xlim(min( data.new[[j]]$x_0.5), max(data.new[[j]]$x_0.5)) + ylim(min(data.new[[j]]$y_0.5), max(data.new[[j]]$y_0.5)) +  theme(legend.position = "none", axis.line=element_blank(),axis.text.x=element_blank(),            axis.text.y=element_blank(),axis.ticks=element_blank(),axis.title.x=element_blank(),axis.title.y=element_blank())
-
-  p5 <- ggplot(data.plot) + geom_point(mapping = aes(x=data.plot$x_0.8, y = data.plot$y_0.8), colour = "red", alpha = 0.8, size = 0.8)+ xlim(min( data.new[[j]]$x_0.8), max(data.new[[j]]$x_0.8)) + ylim(min(data.new[[j]]$y_0.8), max(data.new[[j]]$y_0.8)) +  theme(legend.position = "none", axis.line=element_blank(),axis.text.x=element_blank(),            axis.text.y=element_blank(),axis.ticks=element_blank(),axis.title.x=element_blank(),axis.title.y=element_blank())
-
-  p6 <- ggplot(data.plot) + geom_point(mapping = aes(x=data.plot$x_1, y = data.plot$y_1), colour = "red", alpha = 0.8, size = 0.8)+ xlim(min( data.new[[j]]$x_1), max(data.new[[j]]$x_1)) + ylim(min(data.new[[j]]$y_1), max(data.new[[j]]$y_1))  +  theme(legend.position = "none", axis.line=element_blank(),axis.text.x=element_blank(),            axis.text.y=element_blank(),axis.ticks=element_blank(),axis.title.x=element_blank(),axis.title.y=element_blank())
-
-  #plot_0 <- as_ggplot(tgrob) + theme(plot.margin = margin(0,3,0,0, "cm"))
-
-
-  # p.all[[(j-1)*(length(data.new)+1)+1]] <- p1
-  # p.all[[(j-1)*(length(data.new) +1)+2]] <- p2
-  # p.all[[(j-1)*(length(data.new) +1)+3]] <- p3
-  # p.all[[(j-1)*(length(data.new) +1)+4]] <- p4
-  # p.all[[(j-1)*(length(data.new) +1)+5]] <- p5
-  # p.all[[(j-1)*(length(data.new) +1)+6]] <- p6
-  row <- ggplot() + annotate(geom = 'text', x=2, y=1, label=(names(data.new)[j]), angle = 90, size = 6) + theme_void()
-  p.all <- list(a = row, b= p1,c = p2,d = p3,e = p4,f = p5,g = p6)
-  layoutplot <- "
-  abbbcccdddeeefffggg
-  "
-  p.save = wrap_plots(p.all, guides = 'collect', design = layoutplot)
-  ggsave(p.save, file = str_c("/home/kvergasova/conos_analysis/pancreatit_data/conos_new_",type,"_",names(data.new)[j], ".png"), width = 35, height = 7, units = "cm")
-  # wrap_plots(p.all, guides = 'collect', design = layoutplot)
-  # dev.off()
-  #ggarrange(row, p1,p2,p3,p4,p5,p6,  ncol = 7, nrow = 1, common.legend = TRUE, legend="bottom")
-
-  
-  }
-  
-  data.plot <- data.old[data.old$cell %in% cell_sub_type,] 
-  
-  p1 <- ggplot(data.plot) + geom_point(mapping = aes(x=data.plot$`x_0`, y = data.plot$y_0), colour = "red", alpha = 0.8, size = 0.8) + xlim(min( data.old$`x_0`), max(data.old$`x_0`)) + ylim(min(data.old$`y_0`), max(data.old$`y_0`)) +  theme(legend.position = "none", axis.line=element_blank(),axis.text.x=element_blank(), axis.text.y=element_blank(),axis.ticks=element_blank(),axis.title.x=element_blank(),axis.title.y=element_blank(), plot.title = element_text(family = "Helvetica", face = "bold", size = (15))) + ggtitle("Align.str = 0") 
-  
-  p2 <- ggplot(data.plot) + geom_point(mapping = aes(x=data.plot$`x_0.1`, y = data.plot$y_0.1), colour = "red", alpha = 0.8, size = 0.8)+ xlim(min( data.old$`x_0.1`), max(data.old$`x_0.1`)) + ylim(min(data.old$y_0.1), max(data.old$y_0.1)) +  theme(legend.position = "none", axis.line=element_blank(),axis.text.x=element_blank(), axis.text.y=element_blank(),axis.ticks=element_blank(),axis.title.x=element_blank(),axis.title.y=element_blank(), plot.title = element_text(family = "Helvetica", face = "bold", size = (15))) + ggtitle("Align.str = 0.1") 
-  
-  p3 <- ggplot(data.plot) + geom_point(mapping = aes(x=data.plot$x_0.3, y = data.plot$y_0.3), colour = "red", alpha = 0.8, size = 0.8)+ xlim(min( data.old$x_0.3), max(data.old$x_0.3)) + ylim(min(data.old$y_0.3), max(data.old$y_0.3)) +  theme(legend.position = "none", axis.line=element_blank(),axis.text.x=element_blank(), axis.text.y=element_blank(),axis.ticks=element_blank(),axis.title.x=element_blank(),axis.title.y=element_blank(), plot.title = element_text(family = "Helvetica", face = "bold", size = (15))) + ggtitle("Align.str = 0.3") 
-  
-  p4 <- ggplot(data.plot) + geom_point(mapping = aes(x=data.plot$x_0.5, y = data.plot$y_0.5), colour = "red", alpha = 0.8, size = 0.8) + xlim(min( data.old$x_0.5), max(data.old$x_0.5)) + ylim(min(data.old$y_0.5), max(data.old$y_0.5)) +  theme(legend.position = "none", axis.line=element_blank(),axis.text.x=element_blank(), axis.text.y=element_blank(),axis.ticks=element_blank(),axis.title.x=element_blank(),axis.title.y=element_blank(), plot.title = element_text(family = "Helvetica", face = "bold", size = (15))) + ggtitle("Align.str = 0.5") 
-  
-  p5 <- ggplot(data.plot) + geom_point(mapping = aes(x=data.plot$x_0.8, y = data.plot$y_0.8), colour = "red", alpha = 0.8, size = 0.8)+ xlim(min( data.old$x_0.8), max(data.old$x_0.8)) + ylim(min(data.old$y_0.8), max(data.old$y_0.8)) +  theme(legend.position = "none", axis.line=element_blank(),axis.text.x=element_blank(), axis.text.y=element_blank(),axis.ticks=element_blank(),axis.title.x=element_blank(),axis.title.y=element_blank(), plot.title = element_text(family = "Helvetica", face = "bold", size = (15))) + ggtitle("Align.str = 0.8") 
-  
-  p6 <- ggplot(data.plot) + geom_point(mapping = aes(x=data.plot$x_1, y = data.plot$y_1), colour = "red", alpha = 0.8, size = 0.8)+ xlim(min( data.old$x_1), max(data.old$x_1)) + ylim(min(data.old$y_1), max(data.old$y_1)) +  theme(legend.position = "none", axis.line=element_blank(),axis.text.x=element_blank(), axis.text.y=element_blank(),axis.ticks=element_blank(),axis.title.x=element_blank(),axis.title.y=element_blank(), plot.title = element_text(family = "Helvetica", face = "bold", size = (15))) + ggtitle("Align.str = 1") 
-  
-  #plot_0 <- as_ggplot(tgrob) + theme(plot.margin = margin(0,3,0,0, "cm"))
-  
-  
-  # p.all[[(j-1)*(length(data.new)+1)+1]] <- p1  
-  # p.all[[(j-1)*(length(data.new) +1)+2]] <- p2
-  # p.all[[(j-1)*(length(data.new) +1)+3]] <- p3 
-  # p.all[[(j-1)*(length(data.new) +1)+4]] <- p4 
-  # p.all[[(j-1)*(length(data.new) +1)+5]] <- p5 
-  # p.all[[(j-1)*(length(data.new) +1)+6]] <- p6 
-  #col1 <- ggplot() + annotate(geom = 'text', x=2, y=1, label=(names(data.old)[j]), angle = 90, size = 6) + theme_void() 
-  p.all <- list(b= p1,c = p2,d = p3,e = p4,f = p5,g = p6)
-  layoutplot <- "
-  bbbcccdddeeefffggg
-  "
-  p.save = wrap_plots(p.all, guides = 'collect', design = layoutplot)            
-  ggsave(p.save, file = str_c("/home/kvergasova/conos_analysis/pancreatit_data/conos_old_", type,".png"), width = 35, height = 7, units = "cm")
- 
-  } 
-  
-
-
-
-
+```{r, cache=FALSE, results=FALSE, warning=FALSE, comment=FALSE,message=FALSE}
+data.file <- fread("/home/kvergasova/conos_analysis/conos_analysis_pancreatic/full_data_pancreatic.tsv")
+entropy <- fread(str_c(path, "entropy_data_pancreatic.tsv"))
+data <- left_join(data.file, select(annotation,!cell), by = c("cell"="cell_name"))
+data <- pivot_wider(data, names_from = coord_type, values_from = coord)
+data.plot <- filter(data,neig %in% c(0, 0.05), alignment_str %in% c(0,0.5,1))
 ```
 
 
-
-#строим все клетки с раскраской по протоколу 
-# визуализация графа
-```{r}
- for (j in 1:length(data.new)){
-  # text <- str_c("conos new type: ", type, "  with ", names(data.new)[j])
-  #
-  # # Create a text grob
-  # tgrob <- text_grob(text,size = 11)
-  data.plot <- data.new[[j]]
-  data.plot <- left_join(data.plot, annotation, by = "cell")
-  p1 <- ggplot(data.plot) + geom_point(mapping = aes(x=data.plot$`x_0`, y = data.plot$y_0, colour = data.plot$protocol), alpha = 0.8, size = 0.8) + xlim(min( data.new[[j]]$`x_0`), max(data.new[[j]]$`x_0`)) + ylim(min(data.new[[j]]$`y_0`), max(data.new[[j]]$`y_0`)) + theme_bw()+ theme(legend.position = "none", axis.line=element_blank(),axis.text.x=element_blank(), axis.text.y=element_blank(),axis.ticks=element_blank(),axis.title.x=element_blank(),axis.title.y=element_blank())
-
-  p2 <- ggplot(data.plot) + geom_point(mapping = aes(x=data.plot$`x_0.1`, y = data.plot$y_0.1, colour = data.plot$protocol), alpha = 0.8, size = 0.8)+ xlim(min( data.new[[j]]$`x_0.1`), max(data.new[[j]]$`x_0.1`)) + ylim(min(data.new[[j]]$y_0.1), max(data.new[[j]]$y_0.1))  + theme_bw()+ theme(legend.position = "none", axis.line=element_blank(),axis.text.x=element_blank(),            axis.text.y=element_blank(),axis.ticks=element_blank(),axis.title.x=element_blank(),axis.title.y=element_blank())
-
-  p3 <- ggplot(data.plot) + geom_point(mapping = aes(x=data.plot$x_0.3, y = data.plot$y_0.3, colour = data.plot$protocol), alpha = 0.8, size = 0.8)+ xlim(min( data.new[[j]]$x_0.3), max(data.new[[j]]$x_0.3)) + ylim(min(data.new[[j]]$y_0.3), max(data.new[[j]]$y_0.3)) + theme_bw() +  theme(legend.position = "none", axis.line=element_blank(),axis.text.x=element_blank(),            axis.text.y=element_blank(),axis.ticks=element_blank(),axis.title.x=element_blank(),axis.title.y=element_blank())
-
-  p4 <- ggplot(data.plot) + geom_point(mapping = aes(x=data.plot$x_0.5, y = data.plot$y_0.5, colour = data.plot$protocol), alpha = 0.8, size = 0.8) + xlim(min( data.new[[j]]$x_0.5), max(data.new[[j]]$x_0.5)) + ylim(min(data.new[[j]]$y_0.5), max(data.new[[j]]$y_0.5))+ theme_bw() +  theme(legend.position = "none", axis.line=element_blank(),axis.text.x=element_blank(),            axis.text.y=element_blank(),axis.ticks=element_blank(),axis.title.x=element_blank(),axis.title.y=element_blank())
-
-  p5 <- ggplot(data.plot) + geom_point(mapping = aes(x=data.plot$x_0.8, y = data.plot$y_0.8, colour = data.plot$protocol), alpha = 0.8, size = 0.8)+ xlim(min( data.new[[j]]$x_0.8), max(data.new[[j]]$x_0.8)) + ylim(min(data.new[[j]]$y_0.8), max(data.new[[j]]$y_0.8)) + theme_bw()+  theme(legend.position = "none", axis.line=element_blank(),axis.text.x=element_blank(),            axis.text.y=element_blank(),axis.ticks=element_blank(),axis.title.x=element_blank(),axis.title.y=element_blank())
-
-  p6 <- ggplot(data.plot) + geom_point(mapping = aes(x=data.plot$x_1, y = data.plot$y_1, colour = data.plot$protocol), alpha = 0.8, size = 0.8)+ xlim(min( data.new[[j]]$x_1), max(data.new[[j]]$x_1)) + ylim(min(data.new[[j]]$y_1), max(data.new[[j]]$y_1)) + theme_bw()  +  theme(legend.position = "none", axis.line=element_blank(),axis.text.x=element_blank(),            axis.text.y=element_blank(),axis.ticks=element_blank(),axis.title.x=element_blank(),axis.title.y=element_blank())
-
-  #plot_0 <- as_ggplot(tgrob) + theme(plot.margin = margin(0,3,0,0, "cm"))
-
-
-  # p.all[[(j-1)*(length(data.new)+1)+1]] <- p1
-  # p.all[[(j-1)*(length(data.new) +1)+2]] <- p2
-  # p.all[[(j-1)*(length(data.new) +1)+3]] <- p3
-  # p.all[[(j-1)*(length(data.new) +1)+4]] <- p4
-  # p.all[[(j-1)*(length(data.new) +1)+5]] <- p5
-  # p.all[[(j-1)*(length(data.new) +1)+6]] <- p6
-  row <- ggplot() + annotate(geom = 'text', x=2, y=1, label=(names(data.new)[j]), angle = 90, size = 6) + theme_void()
-  p.all <- list(a = row, b= p1,c = p2,d = p3,e = p4,f = p5,g = p6)
-  layoutplot <- "
-  abbbcccdddeeefffggg
-  "
-  p.save = wrap_plots(p.all, guides = 'collect', design = layoutplot)
-  ggsave(p.save, file = str_c(path,"new_protocol",names(data.new)[j], ".png"), width = 35, height = 7, units = "cm")
-  # wrap_plots(p.all, guides = 'collect', design = layoutplot)
-  # dev.off()
-  #ggarrange(row, p1,p2,p3,p4,p5,p6,  ncol = 7, nrow = 1, common.legend = TRUE, legend="bottom")
-
-  data.plot <- data.old
-  data.plot <- left_join(data.plot, ann.tiny, by = "cell")
-  p1 <- ggplot(data.plot) + geom_point(mapping = aes(x=data.plot$`x_0`, y = data.plot$y_0, colour = data.plot$protocol), alpha = 0.8, size = 0.8) + xlim(min( data.old$`x_0`), max(data.old$`x_0`)) + ylim(min(data.old$`y_0`), max(data.old$`y_0`))+ theme_bw() +  theme(legend.position = "none", axis.line=element_blank(),axis.text.x=element_blank(), axis.text.y=element_blank(),axis.ticks=element_blank(),axis.title.x=element_blank(),axis.title.y=element_blank(), plot.title = element_text(family = "Helvetica", face = "bold", size = (15))) + ggtitle("Align.str = 0") 
-  
-  p2 <- ggplot(data.plot) + geom_point(mapping = aes(x=data.plot$`x_0.1`, y = data.plot$y_0.1,  colour = data.plot$protocol), alpha = 0.8, size = 0.8)+ xlim(min( data.old$`x_0.1`), max(data.old$`x_0.1`)) + ylim(min(data.old$y_0.1), max(data.old$y_0.1)) + theme_bw() +  theme(legend.position = "none", axis.line=element_blank(),axis.text.x=element_blank(), axis.text.y=element_blank(),axis.ticks=element_blank(),axis.title.x=element_blank(),axis.title.y=element_blank(), plot.title = element_text(family = "Helvetica", face = "bold", size = (15))) + ggtitle("Align.str = 0.1") 
-  
-  p3 <- ggplot(data.plot) + geom_point(mapping = aes(x=data.plot$x_0.3, y = data.plot$y_0.3,  colour = data.plot$protocol), alpha = 0.8, size = 0.8)+ xlim(min( data.old$x_0.3), max(data.old$x_0.3)) + ylim(min(data.old$y_0.3), max(data.old$y_0.3)) + theme_bw() +  theme(legend.position = "none", axis.line=element_blank(),axis.text.x=element_blank(), axis.text.y=element_blank(),axis.ticks=element_blank(),axis.title.x=element_blank(),axis.title.y=element_blank(), plot.title = element_text(family = "Helvetica", face = "bold", size = (15))) + ggtitle("Align.str = 0.3") 
-  
-  p4 <- ggplot(data.plot) + geom_point(mapping = aes(x=data.plot$x_0.5, y = data.plot$y_0.5,  colour = data.plot$protocol), alpha = 0.8, size = 0.8) + xlim(min( data.old$x_0.5), max(data.old$x_0.5)) + ylim(min(data.old$y_0.5), max(data.old$y_0.5))+ theme_bw() +  theme(legend.position = "none", axis.line=element_blank(),axis.text.x=element_blank(), axis.text.y=element_blank(),axis.ticks=element_blank(),axis.title.x=element_blank(),axis.title.y=element_blank(), plot.title = element_text(family = "Helvetica", face = "bold", size = (15))) + ggtitle("Align.str = 0.5") 
-  
-  p5 <- ggplot(data.plot) + geom_point(mapping = aes(x=data.plot$x_0.8, y = data.plot$y_0.8, colour = data.plot$protocol), alpha = 0.8, size = 0.8)+ xlim(min( data.old$x_0.8), max(data.old$x_0.8)) + ylim(min(data.old$y_0.8), max(data.old$y_0.8))+ theme_bw() +  theme(legend.position = "none", axis.line=element_blank(),axis.text.x=element_blank(), axis.text.y=element_blank(),axis.ticks=element_blank(),axis.title.x=element_blank(),axis.title.y=element_blank(), plot.title = element_text(family = "Helvetica", face = "bold", size = (15))) + ggtitle("Align.str = 0.8") 
-  
-  p6 <- ggplot(data.plot) + geom_point(mapping = aes(x=data.plot$x_1, y = data.plot$y_1,  colour = data.plot$protocol), alpha = 0.8, size = 0.8)+ xlim(min( data.old$x_1), max(data.old$x_1)) + ylim(min(data.old$y_1), max(data.old$y_1))+ theme_bw() +  theme(legend.position = "none", axis.line=element_blank(),axis.text.x=element_blank(), axis.text.y=element_blank(),axis.ticks=element_blank(),axis.title.x=element_blank(),axis.title.y=element_blank(), plot.title = element_text(family = "Helvetica", face = "bold", size = (15))) + ggtitle("Align.str = 1") 
-  
-  #plot_0 <- as_ggplot(tgrob) + theme(plot.margin = margin(0,3,0,0, "cm"))
-  
-  
-  # p.all[[(j-1)*(length(data.new)+1)+1]] <- p1  
-  # p.all[[(j-1)*(length(data.new) +1)+2]] <- p2
-  # p.all[[(j-1)*(length(data.new) +1)+3]] <- p3 
-  # p.all[[(j-1)*(length(data.new) +1)+4]] <- p4 
-  # p.all[[(j-1)*(length(data.new) +1)+5]] <- p5 
-  # p.all[[(j-1)*(length(data.new) +1)+6]] <- p6 
-  #col1 <- ggplot() + annotate(geom = 'text', x=2, y=1, label=(names(data.old)[j]), angle = 90, size = 6) + theme_void() 
-  p.all <- list(b= p1,c = p2,d = p3,e = p4,f = p5,g = p6)
-  layoutplot <- "
-  bbbcccdddeeefffggg
-  "
-  p.save = wrap_plots(p.all, guides = 'collect', design = layoutplot)            
-  ggsave(p.save, file = str_c(path, "conos_old_all_cell_protocol.png"), width = 35, height = 7, units = "cm")
- 
-  } 
-  
-
-```
-
-#строим все клетки с раскраской по клеточному типу
-# визуализация графа
-```{r}
- for (j in 1:length(data.new)){
-  # text <- str_c("conos new type: ", type, "  with ", names(data.new)[j])
-  #
-  # # Create a text grob
-  # tgrob <- text_grob(text,size = 11)
-  
-   #data.plot <- data.new[[j]]
-   # data.new <- fread("/home/kvergasova/conos_analysis/pancreatit_data/new_embedding_nneig_0.05.tsv")
-   # data.plot <- data.new
-  data.plot <- left_join(data.plot, annotation, by = "cell")
-  p1 <- ggplot(data.plot) + geom_point(mapping = aes(x=data.plot$`x_0`, y = data.plot$y_0, colour = data.plot$cellType), alpha = 0.8, size = 0.8) + xlim(min( data.new[[j]]$`x_0`), max(data.new[[j]]$`x_0`)) + ylim(min(data.new[[j]]$`y_0`), max(data.new[[j]]$`y_0`)) +  theme(legend.position = "none", axis.line=element_blank(),axis.text.x=element_blank(), axis.text.y=element_blank(),axis.ticks=element_blank(),axis.title.x=element_blank(),axis.title.y=element_blank())+ theme_bw()
-
-  p2 <- ggplot(data.plot) + geom_point(mapping = aes(x=data.plot$`x_0.1`, y = data.plot$y_0.1, colour = data.plot$cellType), alpha = 0.8, size = 0.8)+ xlim(min( data.new[[j]]$`x_0.1`), max(data.new[[j]]$`x_0.1`)) + ylim(min(data.new[[j]]$y_0.1), max(data.new[[j]]$y_0.1)) +  theme(legend.position = "none", axis.line=element_blank(),axis.text.x=element_blank(),            axis.text.y=element_blank(),axis.ticks=element_blank(),axis.title.x=element_blank(),axis.title.y=element_blank())+ theme_bw()
-
-  p3 <- ggplot(data.plot) + geom_point(mapping = aes(x=data.plot$x_0.3, y = data.plot$y_0.3, colour = data.plot$cellType), alpha = 0.8, size = 0.8)+ xlim(min( data.new[[j]]$x_0.3), max(data.new[[j]]$x_0.3)) + ylim(min(data.new[[j]]$y_0.3), max(data.new[[j]]$y_0.3)) +  theme(legend.position = "none", axis.line=element_blank(),axis.text.x=element_blank(),            axis.text.y=element_blank(),axis.ticks=element_blank(),axis.title.x=element_blank(),axis.title.y=element_blank())+ theme_bw()
-
-  p4 <- ggplot(data.plot) + geom_point(mapping = aes(x=data.plot$x_0.5, y = data.plot$y_0.5, colour = data.plot$cellType), alpha = 0.8, size = 0.8) + xlim(min( data.new[[j]]$x_0.5), max(data.new[[j]]$x_0.5)) + ylim(min(data.new[[j]]$y_0.5), max(data.new[[j]]$y_0.5)) +  theme(legend.position = "none", axis.line=element_blank(),axis.text.x=element_blank(),            axis.text.y=element_blank(),axis.ticks=element_blank(),axis.title.x=element_blank(),axis.title.y=element_blank())+ theme_bw()
-
-  p5 <- ggplot(data.plot) + geom_point(mapping = aes(x=data.plot$x_0.8, y = data.plot$y_0.8, colour = data.plot$cellType), alpha = 0.8, size = 0.8)+ xlim(min( data.new[[j]]$x_0.8), max(data.new[[j]]$x_0.8)) + ylim(min(data.new[[j]]$y_0.8), max(data.new[[j]]$y_0.8)) +  theme(legend.position = "none", axis.line=element_blank(),axis.text.x=element_blank(),            axis.text.y=element_blank(),axis.ticks=element_blank(),axis.title.x=element_blank(),axis.title.y=element_blank())+ theme_bw()
-
-  p6 <- ggplot(data.plot) + geom_point(mapping = aes(x=data.plot$x_1, y = data.plot$y_1, colour = data.plot$cellType), alpha = 0.8, size = 0.8)+ xlim(min( data.new[[j]]$x_1), max(data.new[[j]]$x_1)) + ylim(min(data.new[[j]]$y_1), max(data.new[[j]]$y_1))  +  theme(legend.position = "none", axis.line=element_blank(),axis.text.x=element_blank(),            axis.text.y=element_blank(),axis.ticks=element_blank(),axis.title.x=element_blank(),axis.title.y=element_blank())+ theme_bw()
-
-  #plot_0 <- as_ggplot(tgrob) + theme(plot.margin = margin(0,3,0,0, "cm"))
-
-
-  # p.all[[(j-1)*(length(data.new)+1)+1]] <- p1
-  # p.all[[(j-1)*(length(data.new) +1)+2]] <- p2
-  # p.all[[(j-1)*(length(data.new) +1)+3]] <- p3
-  # p.all[[(j-1)*(length(data.new) +1)+4]] <- p4
-  # p.all[[(j-1)*(length(data.new) +1)+5]] <- p5
-  # p.all[[(j-1)*(length(data.new) +1)+6]] <- p6
-  row <- ggplot() + annotate(geom = 'text', x=2, y=1, label=(names(data.new)[j]), angle = 90, size = 6) + theme_void()
-  p.all <- list(a = row, b= p1,c = p2,d = p3,e = p4,f = p5,g = p6)
-  layoutplot <- "
-  abbbcccdddeeefffggg
-  "
-  p.save = wrap_plots(p.all, guides = 'collect', design = layoutplot)
-  ggsave(p.save, file = str_c(path, "new_by_cell_type",names(data.new)[j], ".png"), width = 35, height = 7, units = "cm")
-  # wrap_plots(p.all, guides = 'collect', design = layoutplot)
-  # dev.off()
-  #ggarrange(row, p1,p2,p3,p4,p5,p6,  ncol = 7, nrow = 1, common.legend = TRUE, legend="bottom")
-
-  data.plot <- data.old
-  data.plot <- left_join(data.plot, ann.tiny, by = "cell")
-  data.new <- fread("/home/kvergasova/conos_analysis/pancreatit_data/new_embedding_nneig_0.05.tsv")
-  data.plot <- data.new
-  p1 <- ggplot(data.plot) + geom_point(mapping = aes(x=data.plot$`x_0`, y = data.plot$y_0, colour = data.plot$cellType), alpha = 0.8, size = 0.5) + xlim(min( data.old$`x_0`), max(data.old$`x_0`)) + ylim(min(data.old$`y_0`), max(data.old$`y_0`)) +  theme(legend.position = "none", axis.line=element_blank(),axis.text.x=element_blank(), axis.text.y=element_blank(),axis.ticks=element_blank(),axis.title.x=element_blank(),axis.title.y=element_blank(), plot.title = element_text(family = "Helvetica", face = "bold", size = (15))) + ggtitle("Align.str = 0") + theme_bw()
-  
-  p2 <- ggplot(data.plot) + geom_point(mapping = aes(x=data.plot$`x_0.1`, y = data.plot$y_0.1,  colour = data.plot$cellType), alpha = 0.8, size = 0.8)+ xlim(min( data.old$`x_0.1`), max(data.old$`x_0.1`)) + ylim(min(data.old$y_0.1), max(data.old$y_0.1)) +  theme(legend.position = "none", axis.line=element_blank(),axis.text.x=element_blank(), axis.text.y=element_blank(),axis.ticks=element_blank(),axis.title.x=element_blank(),axis.title.y=element_blank(), plot.title = element_text(family = "Helvetica", face = "bold", size = (15))) + ggtitle("Align.str = 0.1") + theme_bw()
-  
-  p3 <- ggplot(data.plot) + geom_point(mapping = aes(x=data.plot$x_0.3, y = data.plot$y_0.3,  colour = data.plot$cellType), alpha = 0.8, size = 0.8)+ xlim(min( data.old$x_0.3), max(data.old$x_0.3)) + ylim(min(data.old$y_0.3), max(data.old$y_0.3)) +  theme(legend.position = "none", axis.line=element_blank(),axis.text.x=element_blank(), axis.text.y=element_blank(),axis.ticks=element_blank(),axis.title.x=element_blank(),axis.title.y=element_blank(), plot.title = element_text(family = "Helvetica", face = "bold", size = (15))) + ggtitle("Align.str = 0.3") + theme_bw()
-  
-  p4 <- ggplot(data.plot) + geom_point(mapping = aes(x=data.plot$x_0.5, y = data.plot$y_0.5,  colour = data.plot$cellType), alpha = 0.8, size = 0.8) + xlim(min( data.old$x_0.5), max(data.old$x_0.5)) + ylim(min(data.old$y_0.5), max(data.old$y_0.5)) +  theme(legend.position = "none", axis.line=element_blank(),axis.text.x=element_blank(), axis.text.y=element_blank(),axis.ticks=element_blank(),axis.title.x=element_blank(),axis.title.y=element_blank(), plot.title = element_text(family = "Helvetica", face = "bold", size = (15))) + ggtitle("Align.str = 0.5") + theme_bw()
-  
-  p5 <- ggplot(data.plot) + geom_point(mapping = aes(x=data.plot$x_0.8, y = data.plot$y_0.8, colour = data.plot$cellType), alpha = 0.8, size = 0.8)+ xlim(min( data.old$x_0.8), max(data.old$x_0.8)) + ylim(min(data.old$y_0.8), max(data.old$y_0.8)) +  theme(legend.position = "none", axis.line=element_blank(),axis.text.x=element_blank(), axis.text.y=element_blank(),axis.ticks=element_blank(),axis.title.x=element_blank(),axis.title.y=element_blank(), plot.title = element_text(family = "Helvetica", face = "bold", size = (15))) + ggtitle("Align.str = 0.8")+ theme_bw() 
-  
-  p6 <- ggplot(data.plot) + geom_point(mapping = aes(x=data.plot$x_1, y = data.plot$y_1,  colour = data.plot$cellType), alpha = 0.8, size = 0.8)+ xlim(min( data.old$x_1), max(data.old$x_1)) + ylim(min(data.old$y_1), max(data.old$y_1)) +  theme(legend.position = "none", axis.line=element_blank(),axis.text.x=element_blank(), axis.text.y=element_blank(),axis.ticks=element_blank(),axis.title.x=element_blank(),axis.title.y=element_blank(), plot.title = element_text(family = "Helvetica", face = "bold", size = (15))) + ggtitle("Align.str = 1")+ theme_bw() 
-  
-  #plot_0 <- as_ggplot(tgrob) + theme(plot.margin = margin(0,3,0,0, "cm"))
-  
-  
-  # p.all[[(j-1)*(length(data.new)+1)+1]] <- p1  
-  # p.all[[(j-1)*(length(data.new) +1)+2]] <- p2
-  # p.all[[(j-1)*(length(data.new) +1)+3]] <- p3 
-  # p.all[[(j-1)*(length(data.new) +1)+4]] <- p4 
-  # p.all[[(j-1)*(length(data.new) +1)+5]] <- p5 
-  # p.all[[(j-1)*(length(data.new) +1)+6]] <- p6 
-  #col1 <- ggplot() + annotate(geom = 'text', x=2, y=1, label=(names(data.old)[j]), angle = 90, size = 6) + theme_void() 
-  p.all <- list(b= p1,c = p2,d = p3,e = p4,f = p5,g = p6)
-  layoutplot <- "
-  bbbcccdddeeefffggg
-  "
-  p.save = wrap_plots(p.all, guides = 'collect', design = layoutplot)            
-  ggsave(p.save, file = str_c(path, "conos_old_all_cell_cellType.png"), width = 35, height = 7, units = "cm")
- 
-  } 
-  
-
+## by protocols
+```{r,  warning=FALSE, comment=FALSE,message=FALSE}
+ggplot(data.plot, aes(x, y, color=protocol)) + geom_point(size=0.5, alpha=0.7) + facet_wrap(neig ~ alignment_str,scales='free') + theme_classic() + theme(strip.background = element_blank(), strip.text.x = element_blank(), axis.ticks = element_blank(), axis.text.x = element_blank(), axis.text.y = element_blank()) + labs(x="alignment strenght", y="percent of neighbors") +  scale_color_brewer(palette="Set1")
 ```
 
 
-# считаю модулярити для графа по типам клеток и по батчам строю таблицу heatmap
-```{r}
-path <- "/home/kvergasova/conos_analysis/mouse_brain/simulations/"
-#path <- "/home/kvergasova/conos_analysis/pancreatic_clear_data2/"
-#path <- "/home/kvergasova/conos_analysis/mouse_brain/"
-file <- "old_alstr_0.1.rds"
-file.old <- list.files(path, pattern = glob2rx("*old_*rds"))
-#ann.tiny <- fread("/home/kvergasova/conos_analysis/annotation_tiny_data.tsv")
-#ann.tiny <- fread("/home/kvergasova/conos_analysis/mouse_brain/mouse_brain_tiny_annotation_table.tsv")
-#ann.tiny <- filter(ann, cell_name %in% rownames(con$embedding))
-ann.tiny <- annotation
-#names(ann.tiny)[3] <- "cellType"
-#ann.tiny$cell <- ann.tiny$cell_name
+## by cell type
+```{r,  warning=FALSE, comment=FALSE,message=FALSE}
+ggplot(data.plot, aes(x, y, color=cell_type)) + geom_point(size=0.5, alpha=0.7) + facet_wrap(neig ~ alignment_str,scales='free') + theme_classic() + theme(strip.background = element_blank(), strip.text.x = element_blank(), axis.ticks = element_blank(), axis.text.x = element_blank(), axis.text.y = element_blank()) + labs(x="alignment strenght", y="percent of neighbors") 
+```
 
+## alpha and beta cells
+```{r, warning=FALSE, comment=FALSE,message=FALSE}
+data.plot.a.b <- filter(data.plot, cell_type %in% c("alpha", "beta"))
+ggplot(data.plot.a.b, aes(x, y, color=cell_type)) + geom_point(size=0.5, alpha=0.7) + facet_wrap(neig ~ alignment_str,scales='free') + theme_classic() + theme(strip.background = element_blank(), strip.text.x = element_blank(), axis.ticks = element_blank(), axis.text.x = element_blank(), axis.text.y = element_blank()) + labs(x="alignment strenght", y="percent of neighbors") +  scale_color_brewer(palette="Set1")
+```
+
+```{r}
 modularity.old <- tibble()
-for (file in list.files(path, pattern = glob2rx("*old_alstr*rds"))){
+for (file in list.files(path, pattern = glob2rx("old_alstr*rds"))){
   g <- read_rds(str_c(path, file))
   batch <- tibble(cell = names(V(g)))  
-  batch <- left_join(batch, ann.tiny, by = "cell")
-  modularity.old <- rbind(modularity.old,c(as.numeric(strsplit(strsplit(file, "alstr_")[[1]][[2]], ".rds")[[1]][[1]]),  modularity(g, as.numeric(as.factor(batch$protocol))),  modularity(g, as.numeric(as.factor(batch$cellType)))))
+  batch <- left_join(batch, annotation, by = c("cell"="cell_name"))
+  modularity.old <- rbind(modularity.old,c(as.numeric(strsplit(strsplit(file, "alstr_")[[1]][[2]], ".rds")[[1]][[1]]),  modularity(g, as.numeric(as.factor(batch$protocol))),  modularity(g, as.numeric(as.factor(batch$cell_type)))))
 }
 colnames(modularity.old) <- c("Alignment_str", "modularity_by_protocol", "modularity_by_cellType")
 modularity.old <- modularity.old[order(modularity.old$Alignment_str),]
 modularity.new <- tibble()
-for (file in list.files(path, pattern = glob2rx("*nneig*rds"))){
+for (file in list.files(path, pattern = glob2rx("new*rds"))){
   g <- read_rds(str_c(path, file))
   batch <- tibble(cell = names(V(g)))  
-  batch <- left_join(batch, ann.tiny, by = "cell")
-  #nneigh <- as.numeric(strsplit(strsplit(file, ".rds")[[1]][[1]], "_")[[1]][[2]])
+  batch <- left_join(batch, annotation, by = c("cell"="cell_name"))
   nneigh <- as.numeric(strsplit(strsplit(file, ".rds")[[1]][[1]], "_")[[1]][[2]])
-  #alstr <- as.numeric(strsplit(strsplit(file, ".rds")[[1]][[1]], "_")[[1]][[4]])
   alstr <- as.numeric(strsplit(strsplit(file, ".rds")[[1]][[1]], "_")[[1]][[4]])
-  modularity.new <- rbind(modularity.new,c(nneigh,  alstr,  modularity(g, as.numeric(as.factor(batch$protocol))),  modularity(g, as.numeric(as.factor(batch$cellType)))))
+  modularity.new <- rbind(modularity.new,c(nneigh,  alstr,  modularity(g, as.numeric(as.factor(batch$protocol))),  modularity(g, as.numeric(as.factor(batch$cell_type)))))
 }
 colnames(modularity.new) <- c("N_neighb","Alignment_str", "modularity_by_protocol", "modularity_by_cellType")
 
+```
 
-# ggplot(modularity.new, aes(x=N_neighb, y=Alignment_str, label=round(modularity_by_cellType, 3), fill=round(modularity_by_cellType, 3))) + geom_text(colour="black") + geom_tile(alpha=0.8) + scale_fill_distiller(palette = "RdPu") 
-#   
-#heatmap для значений модулярити по клеточным типам
-library(reshape2)
-library(gplots)
-library(RColorBrewer)
+
+## modularity by cell type
+```{r,cache=FALSE,  warning=FALSE, comment=FALSE,message=FALSE}
 Colors=brewer.pal(11,"Spectral")
 Colors=colorRampPalette(Colors)(200)
 
@@ -516,11 +172,12 @@ mm <- round(mm, 3)
 
 heatmap.2(x = mm, Rowv = FALSE, Colv = FALSE,
           cellnote = mm, notecol = "black", notecex = 1, trace = "none",
-           col=Colors, margins = c(7, 11), srtCol=0, xlab = 'Alignment Strenght', ylab = "percent of neighbors", density.info="none")
+           col=Colors, margins = c(7, 11), srtCol=0, xlab = 'Alignment str.', ylab = "neighbors", density.info="none")
+```
 
 
-#heatmap для значений модулярити по батчу
-
+## modularity by batch
+```{r, cache=FALSE,  warning=FALSE, comment=FALSE,message=FALSE}
 df.prot <- dcast(modularity.new, N_neighb~Alignment_str, value.var = "modularity_by_protocol")
 df.prot <- rbind(df.prot, c(0, modularity.old$modularity_by_protocol))
 df.prot <- df.prot[order(df.prot$N_neighb),]
@@ -528,50 +185,16 @@ mm1 <- as.matrix(df.prot[,-1])
 rownames(mm1) <- df.prot[,1]
 mm1 <- round(mm1, 3)
 
+
 heatmap.2(x = mm1, Rowv = FALSE, Colv = FALSE,
           cellnote = mm1, notecol = "black", notecex = 1, trace = "none",
-           col=Colors, margins = c(7, 11), srtCol=0, xlab = 'Alignment Strenght', ylab = "percent of neighbors", density.info="none")
-
+           col=Colors, margins = c(7, 11), srtCol=0, xlab = 'Alignment str.', ylab = "neighbors", density.info="none")
 
 ```
 
 
-```{r}
-library(kBET)
-library(conos)
-library(kBET)
-for (file in list.files(path, pattern = glob2rx("new_embedding*tsv"))){
- 
-data <- fread(str_c(path, file))  
-for (j in 1:(ncol(data) -1)/2)){
-  matrix <- 
-}   
-matrix <- fread(str_c(path, file))
-cells <- tibble(cell = rownames(matrix))
-annotation <- tibble(cell = names(ann$CellType), cellType = ann$CellType, old_name = ann$CellId, protocol = ann$Protocol)
-# нужно переименовать часть клеток
-f <- filter(annotation, str_detect(annotation$cell, "-1_GSM"))
-f$cell <- strsplit(f$cell, "_GSM") %>% sapply(function(x) x[1])
-annotation[str_detect(annotation$cell, "-1_GSM"),] <- f
-
-
-annotation <- left_join(cells, annotation, by = "cell")
-names(annotation$cellType) <- annotation$cell
-
-annotation <- annotation[!duplicated(annotation$cell), ]
-#рисунок с аннотацией клеток
-cono.t$plotGraph(groups = annotation$cellType, mark.groups=FALSE, alpha=0.1, show.legend=TRUE)
-clusters.ann <- names(table(annotation$cellType)[table(annotation$cellType) > 70])
-kBET_res <- list()
-kBET_result_list <- list()
-for (cluster_level in clusters.ann){
-   batch_tmp <- annotation$protocol[annotation$cellType == cluster_level]
-   data_tmp <- matrix[rownames(matrix) %in%  annotation$cell[annotation$cellType == cluster_level],]
-   kBET_tmp <- kBET(df=data_tmp, k0 = 15, batch=batch_tmp, plot=TRUE, do.pca = FALSE,  heuristic=FALSE, adapt=FALSE)
-   kBET_result_list[[cluster_level]] <- kBET_tmp
-   kBET_res[[cluster_level]] <- kBET_tmp$summary$kBET.observed[1]
-}
-
-
+## entropy
+```{r, fig.width=10, fig.height=4}
+entropy %>% filter(neig %in% c(0,0.05,0.5), alignment_str %in% c(0,0.5,1)) %>% ggplot(aes(x = cluster, y = ent, color = as.factor(alignment_str))) + geom_line() + geom_point() + facet_wrap(~neig, nrow = 1) + theme_classic()  + labs(x="cluster", y="entropy") +  scale_color_brewer(palette="Set1")
 ```
 
